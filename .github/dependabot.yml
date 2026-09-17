@@ -1,0 +1,26 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # React, Vite and their plugins move together; one PR per week keeps the
+      # review surface small.
+      dev-tooling:
+        patterns:
+          - "@types/*"
+          - "@vitejs/*"
+          - "@tailwindcss/*"
+          - "esbuild"
+          - "tailwindcss"
+          - "tsx"
+          - "typescript"
+          - "vite"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
