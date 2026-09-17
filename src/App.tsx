@@ -41,17 +41,19 @@ export function AppContent() {
     setIsAuthModalOpen(true);
   };
 
-  // Map selected hero persona to matching Gemini agent role
-  const geminiRoleFromPersona =
-    activePersonaId === 'healthcare-triage'
-      ? 'clinical_intake'
-      : activePersonaId === 'fintech-wealth'
-      ? 'wealth_fraud'
-      : activePersonaId === 'real-estate-luxury'
-      ? 'luxury_real_estate'
-      : activePersonaId === 'logistics-dispatch'
-      ? 'fleet_dispatcher'
-      : 'white_glove_support';
+  // Hero persona to chat role, and to the server-side conversation flow.
+  const GEMINI_ROLE_BY_PERSONA: Record<string, string> = {
+    'healthcare-triage': 'clinical_intake',
+    'fintech-wealth': 'account_security',
+    'real-estate-luxury': 'property_enquiry',
+    'logistics-dispatch': 'logistics_coordinator',
+  };
+  const VOICE_FLOW_BY_PERSONA: Record<string, string> = {
+    'healthcare-triage': 'clinical_intake',
+    'fintech-wealth': 'account_security',
+    'real-estate-luxury': 'real_estate',
+  };
+  const geminiRoleFromPersona = GEMINI_ROLE_BY_PERSONA[activePersonaId] ?? 'customer_support';
 
   return (
     <div className="min-h-screen flex flex-col bg-[#08090B] text-[#F4F2F8] selection:bg-[#7047FF]/30 selection:text-[#F4F2F8] antialiased">
@@ -102,17 +104,7 @@ export function AppContent() {
         isOpen={isStudioOpen}
         onClose={() => setIsStudioOpen(false)}
         onOpenAuth={handleOpenAuth}
-        initialFlowId={
-          activePersonaId === 'healthcare-triage'
-            ? 'clinical_triage'
-            : activePersonaId === 'fintech-wealth'
-            ? 'fraud_alert'
-            : activePersonaId === 'real-estate-luxury'
-            ? 'luxury_real_estate'
-            : activePersonaId === 'logistics-dispatch'
-            ? 'fleet_dispatch'
-            : 'customer_support'
-        }
+        initialFlowId={VOICE_FLOW_BY_PERSONA[activePersonaId] ?? 'customer_support'}
       />
 
       {/* Enterprise Briefing / Book a Demo Modal */}
