@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Sparkles, SlidersHorizontal, Mic, Disc, Activity } from 'lucide-react';
+import { X, Sparkles, SlidersHorizontal, Mic, Disc, Activity, Database, Save, Check } from 'lucide-react';
 import { PipelineVisualizer } from './PipelineVisualizer';
 import { ConversationPanel } from './ConversationPanel';
 import { VoiceControls } from './VoiceControls';
 import { EventsLogPanel } from './EventsLogPanel';
 import { SettingsModal } from './SettingsModal';
 import { PipelineTriageModal } from './PipelineTriageModal';
+import { useAuth } from '../context/AuthContext';
 import {
   ensureAudioUnlocked,
   stopVoiceAudio,
@@ -17,14 +18,19 @@ import { ChatMessage, FrameEvent, PipelineConfig, PipelineMetrics, PresetFlow, S
 interface LiveStudioModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenAuth?: () => void;
   initialFlowId?: string;
 }
 
 export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
   isOpen,
   onClose,
+  onOpenAuth,
   initialFlowId,
 }) => {
+  const { user, saveVoiceAgent, saveCallSession } = useAuth();
+  const [isSavingAgent, setIsSavingAgent] = useState(false);
+  const [savedAgentSuccess, setSavedAgentSuccess] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -525,6 +531,73 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
     addEvent('SessionReadyFrame', 'tts', 'Browser AudioContext unlocked successfully', 'success');
   };
 
+  // Persist Current Voice Agent Preset to Firestore Database
+  const handleSaveAgentToCloud = async () => {
+    if (!user) {
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
+    setIsSavingAgent(true);
+    try {
+      const activeFlowObj = flows.find((f) => f.id === pipelineConfig.flow) || flows[0];
+      const agentId = `agent_${Date.now()}`;
+      await saveVoiceAgent({
+        id: agentId,
+        name: activeFlowObj?.name || 'Custom Voice Agent',
+        description: activeFlowObj?.description || 'Engineered with Pipecat pipeline',
+        transport: pipelineConfig.transport,
+        vad: pipelineConfig.vad,
+        stt: pipelineConfig.stt,
+        llm: pipelineConfig.llm,
+        tts: pipelineConfig.tts,
+        flow: pipelineConfig.flow,
+        latencyTargetMs: 280,
+      });
+      setSavedAgentSuccess(true);
+      setTimeout(() => setSavedAgentSuccess(false), 3000);
+      addEvent('SessionReadyFrame', 'worker', 'Voice agent preset saved to Cloud Firestore', 'success');
+    } catch (err: any) {
+      addEvent('ErrorFrame', 'worker', `Database error: ${err.message}`, 'error');
+    } finally {
+      setIsSavingAgent(false);
+    }
+  };
+
+  // Persist Current Call Transcript & Latency telemetry to Firestore Database
+  const handleSaveSessionToCloud = async () => {
+    if (!user) {
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
+    if (messages.length === 0) {
+      addEvent('ErrorFrame', 'worker', 'No conversation turns to save in session', 'warning');
+      return;
+    }
+    try {
+      const activeFlowObj = flows.find((f) => f.id === pipelineConfig.flow) || flows[0];
+      const sessId = sessionId || `sess_${Date.now()}`;
+      await saveCallSession({
+        id: sessId,
+        agentId: activeFlowObj?.id,
+        title: `${activeFlowObj?.name || 'Voice'} Call Session`,
+        durationSec: 45,
+        turnCount: messages.length,
+        avgLatencyMs: metrics?.totalLatencyMs || 280,
+        status: isConnected ? 'active' : 'completed',
+        messages: messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          text: m.content,
+          timestamp: m.timestamp,
+          latencyMs: m.latencyMs,
+        })),
+      });
+      addEvent('SessionReadyFrame', 'worker', 'Session transcript & latency metrics saved to Firestore', 'success');
+    } catch (err: any) {
+      addEvent('ErrorFrame', 'worker', `Database error: ${err.message}`, 'error');
+    }
+  };
+
   if (!isOpen) return null;
 
   const activeFlow = flows.find((f) => f.id === pipelineConfig.flow) || flows[0];
@@ -553,7 +626,43 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Save Agent Preset to Firestore Database */}
+            <button
+              onClick={handleSaveAgentToCloud}
+              disabled={isSavingAgent}
+              className={`px-3 py-1.5 rounded-full text-xs font-mono uppercase tracking-wider border flex items-center gap-1.5 transition-all shadow-sm ${
+                savedAgentSuccess
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                  : 'border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300'
+              }`}
+              title={user ? 'Save current voice agent preset to Cloud Firestore' : 'Sign in to save agent preset'}
+            >
+              {savedAgentSuccess ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden md:inline">Saved</span>
+                </>
+              ) : (
+                <>
+                  <Database className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden md:inline">{user ? 'Save Preset' : 'Log in & Save'}</span>
+                </>
+              )}
+            </button>
+
+            {/* Save Session Transcript to Database (if messages present) */}
+            {messages.length > 0 && (
+              <button
+                onClick={handleSaveSessionToCloud}
+                className="px-3 py-1.5 rounded-full text-xs font-mono uppercase tracking-wider border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 flex items-center gap-1.5 transition-all shadow-sm"
+                title="Save conversation transcript and latency metrics to Cloud Firestore"
+              >
+                <Save className="w-3.5 h-3.5 text-blue-400" />
+                <span className="hidden lg:inline">Save Transcript</span>
+              </button>
+            )}
+
             {/* 5-Tier Pipeline Diagnostic Triage Button */}
             <button
               id="header-open-triage-button"

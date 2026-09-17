@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
-import { Disc, Menu, X, ArrowUpRight, Terminal, Sparkles } from 'lucide-react';
+import { Disc, Menu, X, ArrowUpRight, Sparkles, Database, User } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface NavbarProps {
   onOpenStudio: () => void;
   onOpenPricing: () => void;
   onOpenDocs: () => void;
+  onOpenAuth: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onOpenDocs }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onOpenDocs, onOpenAuth }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user, userProfile } = useAuth();
 
   return (
     <header className="sticky top-0 z-40 bg-[#0D0F13]/90 backdrop-blur-xl border-b border-[#292B3A] transition-all">
@@ -74,12 +77,37 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
         </nav>
 
         {/* Action CTAs */}
-        <div className="hidden sm:flex items-center gap-4">
+        <div className="hidden sm:flex items-center gap-3">
+          {/* Database / Auth Button */}
           <button
-            onClick={onOpenStudio}
-            className="text-xs font-mono uppercase tracking-wider text-[#A4A3B2] hover:text-[#F4F2F8] transition-colors px-3 py-2"
+            onClick={onOpenAuth}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[#292B3A] hover:border-[#3E4259] bg-[#12141A] text-xs font-mono text-[#F4F2F8] transition-all"
+            title="Manage Accounts & Cloud Database"
           >
-            Log in
+            {user ? (
+              <div className="flex items-center gap-2">
+                {user.photoURL ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName || 'User'}
+                    className="w-5 h-5 rounded-full object-cover border border-[#3E4259]"
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-[10px] font-bold">
+                    {(user.displayName || user.email || 'U')[0].toUpperCase()}
+                  </div>
+                )}
+                <span className="max-w-[100px] truncate text-[11px] text-[#F4F2F8]">
+                  {user.displayName || user.email?.split('@')[0]}
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Firestore Connected" />
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-[#A4A3B2] hover:text-[#F4F2F8]">
+                <Database className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-[11px] uppercase tracking-wider">Log in / DB</span>
+              </div>
+            )}
           </button>
 
           <button
@@ -159,11 +187,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
             <button
               onClick={() => {
                 setMobileMenuOpen(false);
-                onOpenStudio();
+                onOpenAuth();
               }}
-              className="w-full py-2.5 rounded-xl border border-[#34365C] text-center text-[#F4F2F8] bg-[#12141A]"
+              className="w-full py-2.5 rounded-xl border border-[#34365C] text-center text-[#F4F2F8] bg-[#12141A] flex items-center justify-center gap-2"
             >
-              Log in
+              <Database className="w-3.5 h-3.5 text-amber-400" />
+              <span>{user ? `Account (${user.displayName || user.email})` : 'Log in / Database'}</span>
             </button>
             <button
               onClick={() => {

@@ -9,11 +9,14 @@ import { PricingSection } from './components/PricingSection';
 import { Footer } from './components/Footer';
 import { LiveStudioModal } from './components/LiveStudioModal';
 import { DemoModal } from './components/DemoModal';
+import { AuthModal } from './components/AuthModal';
+import { AuthProvider } from './context/AuthContext';
 import { PYVEX_PERSONAS } from './data/personas';
 
-export function App() {
+export function AppContent() {
   const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [activePersonaId, setActivePersonaId] = useState(PYVEX_PERSONAS[0].id);
 
   const handleOpenStudio = () => {
@@ -32,6 +35,10 @@ export function App() {
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
     }
+  };
+
+  const handleOpenAuth = () => {
+    setIsAuthModalOpen(true);
   };
 
   // Map selected hero persona to matching Gemini agent role
@@ -53,6 +60,7 @@ export function App() {
         onOpenStudio={handleOpenStudio}
         onOpenPricing={handleOpenPricing}
         onOpenDocs={handleOpenDocs}
+        onOpenAuth={handleOpenAuth}
       />
 
       <main className="flex-1 flex flex-col">
@@ -93,6 +101,7 @@ export function App() {
       <LiveStudioModal
         isOpen={isStudioOpen}
         onClose={() => setIsStudioOpen(false)}
+        onOpenAuth={handleOpenAuth}
         initialFlowId={
           activePersonaId === 'healthcare-triage'
             ? 'clinical_triage'
@@ -111,7 +120,24 @@ export function App() {
         isOpen={isDemoModalOpen}
         onClose={() => setIsDemoModalOpen(false)}
       />
+
+      {/* Cloud Database & Account Login Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSelectAgent={() => {
+          setIsStudioOpen(true);
+        }}
+      />
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

@@ -1,0 +1,12 @@
+{
+  "projectId": "tilted-ai-receptionist-prod-01",
+  "appId": "1:286858599450:web:d1535e0e1fbebc066585a3",
+  "apiKey": "AIzaSyAayLIlFIqUiCh_hG-Ko_ssQ7QiOxY8d1Y",
+  "authDomain": "tilted-ai-receptionist-prod-01.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-pyvexvoice-bf711412-a1b6-4dd0-9d8c-06c8178a8b11",
+  "storageBucket": "tilted-ai-receptionist-prod-01.firebasestorage.app",
+  "messagingSenderId": "286858599450",
+  "measurementId": "",
+  "oAuthClientId": "286858599450-ksgdflts0nhfb48ei9dbvc262edqesuo.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
+}

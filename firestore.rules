@@ -1,0 +1,128 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Entity validation blueprints
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() > 0 && data.email.size() <= 150 &&
+             data.role in ['engineer', 'operator', 'admin'] &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500));
+    }
+
+    function isValidVoiceAgent(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.llm is string && data.llm.size() <= 50 &&
+             data.tts is string && data.tts.size() <= 50 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 300)) &&
+             (!('transport' in data) || (data.transport is string && data.transport.size() <= 50)) &&
+             (!('vad' in data) || (data.vad is string && data.vad.size() <= 50)) &&
+             (!('stt' in data) || (data.stt is string && data.stt.size() <= 50)) &&
+             (!('flow' in data) || (data.flow is string && data.flow.size() <= 50)) &&
+             (!('latencyTargetMs' in data) || data.latencyTargetMs is number);
+    }
+
+    function isValidCallSession(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 150 &&
+             data.status in ['active', 'completed', 'cancelled'] &&
+             (!('agentId' in data) || (data.agentId is string && data.agentId.size() <= 128)) &&
+             (!('durationSec' in data) || data.durationSec is number) &&
+             (!('turnCount' in data) || data.turnCount is number) &&
+             (!('avgLatencyMs' in data) || data.avgLatencyMs is number) &&
+             (!('messages' in data) || (data.messages is list && data.messages.size() <= 200));
+    }
+
+    // User collection
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // Blanket user listing forbidden for PII privacy
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUser(incoming()) &&
+                       incoming().uid == request.auth.uid &&
+                       incoming().role in ['engineer', 'operator']; // Forbid self-assigning admin
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUser(incoming()) &&
+                       incoming().uid == existing().uid &&
+                       incoming().role == existing().role; // Forbid role escalation
+
+      allow delete: if isOwner(userId);
+    }
+
+    // Voice Agents configuration collection
+    match /voice_agents/{agentId} {
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(agentId) &&
+                       isValidVoiceAgent(incoming()) &&
+                       incoming().userId == request.auth.uid;
+
+      allow update: if isSignedIn() &&
+                       isValidId(agentId) &&
+                       isValidVoiceAgent(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId;
+
+      allow delete: if isSignedIn() &&
+                       isValidId(agentId) &&
+                       existing().userId == request.auth.uid;
+    }
+
+    // Call Sessions and Transcript telemetry collection
+    match /call_sessions/{sessionId} {
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(sessionId) &&
+                       isValidCallSession(incoming()) &&
+                       incoming().userId == request.auth.uid;
+
+      allow update: if isSignedIn() &&
+                       isValidId(sessionId) &&
+                       isValidCallSession(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId;
+
+      allow delete: if isSignedIn() &&
+                       isValidId(sessionId) &&
+                       existing().userId == request.auth.uid;
+    }
+  }
+}

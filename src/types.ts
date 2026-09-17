@@ -90,3 +90,51 @@ export interface GeminiChatRole {
   colorAccent: string;
 }
 
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName?: string;
+  photoURL?: string;
+  role: 'engineer' | 'operator' | 'admin';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SavedVoiceAgent {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  transport?: string;
+  vad?: string;
+  stt?: string;
+  llm: string;
+  tts: string;
+  flow?: string;
+  latencyTargetMs?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SavedCallSession {
+  id: string;
+  userId: string;
+  agentId?: string;
+  title: string;
+  durationSec?: number;
+  turnCount?: number;
+  avgLatencyMs?: number;
+  status: 'active' | 'completed' | 'cancelled';
+  messages?: Array<{
+    id: string;
+    role: string;
+    text: string;
+    timestamp: number;
+    latencyMs?: number;
+  }>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type CloudSyncStatus = 'idle' | 'syncing' | 'saved' | 'error';
+
