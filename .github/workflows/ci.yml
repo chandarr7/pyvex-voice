@@ -1,19 +1,15 @@
 name: ci
 
 on:
+  # Every branch, so a push is checked before it becomes a pull request. This
+  # also avoids naming the default branch, which is not "main" here.
   push:
-    # The default branch is currently "aleix/evals-function-call-judging"; list
-    # it alongside main so pushes to it are covered either way.
-    branches:
-      - main
-      - aleix/evals-function-call-judging
-  pull_request:
     branches:
       - "**"
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
