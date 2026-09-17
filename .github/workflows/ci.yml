@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    # The default branch is currently "aleix/evals-function-call-judging"; list
+    # it alongside main so pushes to it are covered either way.
+    branches:
+      - main
+      - aleix/evals-function-call-judging
+  pull_request:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Build client and server bundles
+        run: npm run build
