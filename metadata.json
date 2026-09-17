@@ -1,6 +1,6 @@
 {
   "name": "Pyvex Voice - Pipecat Voice Agent",
-  "description": "Real-time voice and multimodal AI agent platform with interactive pipeline, speech recognition, and live conversational controls.",
+  "description": "Pyvex STUDIO - Real-time AI voice agent infrastructure and interactive 3D card carousel showcase with ElevenLabs multi-voice personas and sub-300ms acoustic pipeline.",
   "requestFramePermissions": [
     "microphone"
   ],

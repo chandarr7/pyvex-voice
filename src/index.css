@@ -1,35 +1,115 @@
 @import "tailwindcss";
 
-@layer base {
-  body {
-    background-color: #09090b;
-    color: #f4f4f5;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  }
+:root {
+  /* Core Backgrounds */
+  --bg-black: #08090B;
+  --bg-primary: #0D0F13;
+  --bg-secondary: #12141A;
+  --bg-card: #171820;
+  --bg-elevated: #1C1D25;
+
+  /* Accent Palette */
+  --purple-primary: #7047FF;
+  --purple-bright: #845CFF;
+  --purple-electric: #9655FF;
+  --purple-dark: #35246E;
+
+  /* Supporting Accents */
+  --cyan: #24D8ED;
+  --green: #20E99A;
+  --red: #FF6269;
+  --yellow: #F5BD24;
+
+  /* Borders & Strokes */
+  --border-default: #292B3A;
+  --border-purple: #34365C;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+
+  /* Typography */
+  --text-primary: #F4F2F8;
+  --text-secondary: #A4A3B2;
+  --text-muted: #666879;
+
+  /* Ambient Glows */
+  --burgundy-glow: rgba(91, 32, 54, 0.20);
+  --purple-glow: rgba(112, 71, 255, 0.18);
+
+  /* Font Aliases */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
-/* Pulse animation for voice listening and speaking states */
-@keyframes audio-wave {
+/* Base Body Setup */
+body {
+  background-color: var(--bg-black);
+  background-image: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, var(--purple-glow), transparent),
+    radial-gradient(ellipse 60% 40% at 50% -10%, var(--burgundy-glow), transparent);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Luxury acoustic wave animations */
+@keyframes acoustic-pulse {
   0%, 100% {
-    height: 8px;
+    transform: scaleY(0.25);
+    opacity: 0.5;
   }
   50% {
-    height: 32px;
+    transform: scaleY(1);
+    opacity: 1;
   }
 }
 
-.animate-wave-1 {
-  animation: audio-wave 1.1s ease-in-out infinite;
+.animate-acoustic-1 {
+  animation: acoustic-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
-.animate-wave-2 {
-  animation: audio-wave 0.8s ease-in-out infinite 0.2s;
+.animate-acoustic-2 {
+  animation: acoustic-pulse 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.15s;
 }
-.animate-wave-3 {
-  animation: audio-wave 1.3s ease-in-out infinite 0.4s;
+.animate-acoustic-3 {
+  animation: acoustic-pulse 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.3s;
 }
-.animate-wave-4 {
-  animation: audio-wave 0.9s ease-in-out infinite 0.1s;
+.animate-acoustic-4 {
+  animation: acoustic-pulse 1.0s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.45s;
 }
-.animate-wave-5 {
-  animation: audio-wave 1.2s ease-in-out infinite 0.3s;
+.animate-acoustic-5 {
+  animation: acoustic-pulse 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.2s;
+}
+
+/* Subtle luxury pulse for listening state */
+@keyframes ring-expand {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.2;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+.animate-ring-expand {
+  animation: ring-expand 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
 }

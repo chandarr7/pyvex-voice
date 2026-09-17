@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Bot, User, Volume2, Sparkles, AlertCircle } from 'lucide-react';
+import { Volume2, Sparkles, XCircle, CornerDownLeft } from 'lucide-react';
 import { ChatMessage } from '../types';
 
 interface ConversationPanelProps {
@@ -32,34 +32,44 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   }, [messages, interimTranscript, isProcessing]);
 
   return (
-    <div className="flex flex-col flex-1 bg-zinc-950/60 border border-zinc-800/80 rounded-2xl overflow-hidden backdrop-blur-sm shadow-xl min-h-[420px]">
-      {/* Panel Header */}
-      <div className="px-5 py-3.5 border-b border-zinc-800/80 flex items-center justify-between bg-zinc-900/40">
-        <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-          <h2 className="text-sm font-semibold text-zinc-200">Conversation Stream</h2>
+    <div className="flex flex-col flex-1 bg-[#121316]/70 border border-white/[0.08] rounded-2xl overflow-hidden backdrop-blur-md shadow-2xl min-h-[460px]">
+      {/* Panel Top Bar */}
+      <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.015]">
+        <div className="flex items-center gap-3">
+          <span className="w-1.5 h-1.5 rounded-full bg-white/70" />
+          <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-white/70">
+            Acoustic Dialogue Transcript
+          </h2>
+          <span className="text-[10px] font-mono text-white/30">
+            • {messages.length} utterances
+          </span>
         </div>
 
+        {/* Barge-in / Interruption Control */}
         {isSpeaking && (
           <button
             id="interrupt-bot-button"
             onClick={onInterrupt}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-mono uppercase tracking-wider bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all active:scale-[0.97]"
           >
-            <AlertCircle className="w-3.5 h-3.5" />
-            Interrupt Bot
+            <XCircle className="w-3 h-3 text-rose-400" />
+            <span>Barge In</span>
           </button>
         )}
       </div>
 
-      {/* Message List */}
-      <div ref={scrollRef} className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4">
+      {/* Message Stream */}
+      <div ref={scrollRef} className="flex-1 p-6 lg:p-8 overflow-y-auto space-y-6">
         {messages.length === 0 && !interimTranscript && (
-          <div className="h-full flex flex-col items-center justify-center text-center p-6 text-zinc-500">
-            <Bot className="w-12 h-12 mb-3 text-zinc-600" />
-            <p className="text-sm font-medium text-zinc-400">Pipeline is initialized & ready</p>
-            <p className="text-xs max-w-sm mt-1">
-              Tap the microphone or choose a quick prompt below to start speaking with the voice bot.
+          <div className="h-full flex flex-col items-center justify-center text-center p-8 text-white/40 my-auto">
+            <div className="w-12 h-12 rounded-full border border-white/10 flex items-center justify-center mb-4 text-white/50">
+              <Volume2 className="w-5 h-5" />
+            </div>
+            <h3 className="text-base font-serif italic text-white/80">
+              Awaiting Voice Ingress
+            </h3>
+            <p className="text-xs text-white/40 max-w-sm mt-1.5 font-sans leading-relaxed">
+              Press the acoustic trigger below or utter a prompt to initiate real-time conversational synthesis.
             </p>
           </div>
         )}
@@ -69,88 +79,82 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
           return (
             <div
               key={msg.id}
-              className={`flex items-start gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
+              className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} transition-all duration-300`}
             >
-              {!isUser && (
-                <div className="w-8 h-8 rounded-lg bg-cyan-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
-                  <Bot className="w-4 h-4" />
-                </div>
-              )}
-
-              <div
-                className={`max-w-[82%] sm:max-w-[70%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                  isUser
-                    ? 'bg-cyan-600 text-white rounded-br-none'
-                    : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-none'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-3 text-[11px] mb-1 opacity-75">
-                  <span className="font-medium">{isUser ? 'You' : 'Pyvex Assistant'}</span>
-                  {msg.latencyMs && (
-                    <span className="font-mono text-[10px]">{msg.latencyMs}ms</span>
-                  )}
-                </div>
-                <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+              <div className="flex items-center gap-2 mb-1.5 text-[11px] font-mono text-white/35 px-1">
+                <span className="uppercase tracking-widest">{isUser ? 'Human Voice' : 'Pyvex Agent'}</span>
+                {msg.latencyMs && (
+                  <>
+                    <span>•</span>
+                    <span>{msg.latencyMs}ms latency</span>
+                  </>
+                )}
               </div>
 
-              {isUser && (
-                <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-300 shrink-0">
-                  <User className="w-4 h-4" />
-                </div>
-              )}
+              <div
+                className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-5 py-4 transition-all duration-200 ${
+                  isUser
+                    ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm'
+                    : 'bg-[#181a1f]/90 border border-white/[0.07] text-[#ece7de] shadow-inner'
+                }`}
+              >
+                <p className={`text-sm leading-relaxed ${!isUser ? 'font-sans text-[14.5px] font-normal tracking-wide' : 'font-sans'}`}>
+                  {msg.content}
+                </p>
+              </div>
             </div>
           );
         })}
 
-        {/* Real-time Interim speech recognition bubble */}
+        {/* Real-time Interim Streaming Transcript */}
         {interimTranscript && (
-          <div className="flex items-start gap-3 justify-end">
-            <div className="max-w-[82%] sm:max-w-[70%] rounded-2xl rounded-br-none px-4 py-3 text-sm bg-cyan-950/60 border border-cyan-500/40 text-cyan-200 animate-pulse">
-              <div className="text-[11px] font-medium text-cyan-400 mb-1 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-                Transcribing in real time...
-              </div>
-              <p className="italic">{interimTranscript}</p>
+          <div className="flex flex-col items-end animate-fade-in">
+            <div className="flex items-center gap-2 mb-1.5 text-[11px] font-mono text-amber-400/70 px-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+              <span className="uppercase tracking-widest">Streaming Input</span>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-cyan-900/40 border border-cyan-500/50 flex items-center justify-center text-cyan-300 shrink-0">
-              <User className="w-4 h-4" />
+            <div className="max-w-[85%] sm:max-w-[75%] rounded-2xl px-5 py-4 bg-white/[0.04] border border-amber-400/30 text-white/90">
+              <p className="text-sm italic font-serif leading-relaxed text-amber-100/90">
+                "{interimTranscript}"
+              </p>
             </div>
           </div>
         )}
 
         {/* Processing Indicator */}
         {isProcessing && !interimTranscript && (
-          <div className="flex items-start gap-3 justify-start">
-            <div className="w-8 h-8 rounded-lg bg-cyan-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
-              <Bot className="w-4 h-4" />
+          <div className="flex flex-col items-start animate-fade-in">
+            <div className="flex items-center gap-2 mb-1.5 text-[11px] font-mono text-white/35 px-1">
+              <span className="uppercase tracking-widest">Reasoning & Synthesizing</span>
             </div>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl rounded-bl-none px-4 py-3 flex items-center gap-2">
-              <div className="flex gap-1">
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce [animation-delay:-0.3s]" />
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce [animation-delay:-0.15s]" />
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" />
+            <div className="bg-[#181a1f]/90 border border-white/[0.07] rounded-2xl px-5 py-3.5 flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce [animation-delay:-0.3s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce [animation-delay:-0.15s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce" />
               </div>
-              <span className="text-xs text-zinc-400">Synthesizing LLM turn...</span>
+              <span className="text-xs font-mono text-white/50">Processing speech turn...</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Suggested prompts footer */}
+      {/* Suggested Turns Carousel */}
       {suggestedPrompts.length > 0 && (
-        <div className="p-3 border-t border-zinc-800/80 bg-zinc-950/40">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400 mb-2 font-medium">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Suggested Turns:</span>
+        <div className="px-6 py-3.5 border-t border-white/[0.06] bg-white/[0.01]">
+          <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.2em] text-white/40 mb-2">
+            <Sparkles className="w-3 h-3 text-amber-400/80" />
+            <span>Suggested Utterances</span>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
             {suggestedPrompts.map((prompt, idx) => (
               <button
                 key={idx}
                 onClick={() => onSelectPrompt(prompt)}
-                className="whitespace-nowrap text-xs px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 transition-colors shrink-0"
+                className="whitespace-nowrap text-xs px-3.5 py-1.5 rounded-full border border-white/[0.08] hover:border-white/25 bg-white/[0.02] hover:bg-white/[0.06] text-white/70 hover:text-white transition-all text-left flex items-center gap-1.5"
               >
-                "{prompt}"
+                <span>{prompt}</span>
+                <CornerDownLeft className="w-2.5 h-2.5 text-white/30" />
               </button>
             ))}
           </div>

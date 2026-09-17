@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, Cpu, Headphones, Layers, Mic, Volume2, Zap } from 'lucide-react';
+import { ArrowRight, Activity, Radio, Cpu, Volume2, Mic } from 'lucide-react';
 import { PipelineConfig, PipelineMetrics } from '../types';
 
 interface PipelineVisualizerProps {
@@ -19,99 +19,113 @@ export const PipelineVisualizer: React.FC<PipelineVisualizerProps> = ({
 }) => {
   const stages = [
     {
-      name: 'Audio In',
-      desc: config.transport === 'smallwebrtc' ? 'SmallWebRTC' : config.transport === 'daily' ? 'Daily WebRTC' : 'WebSocket',
-      icon: Mic,
+      step: '01',
+      name: 'Ingress',
+      provider: config.transport === 'smallwebrtc' ? 'SmallWebRTC' : config.transport === 'daily' ? 'Daily WebRTC' : 'WebSocket',
+      spec: '24kHz • PCM',
       active: isListening,
-      activeColor: 'border-cyan-500/70 bg-cyan-500/10 text-cyan-400',
-      badge: isListening ? 'Streaming' : 'Ready',
+      indicator: 'Mic In',
     },
     {
-      name: 'VAD Analyzer',
-      desc: config.vad === 'silero' ? 'Silero VAD v5' : 'SmartTurn v3',
-      icon: Headphones,
+      step: '02',
+      name: 'VAD Gate',
+      provider: config.vad === 'silero' ? 'Silero v5' : 'SmartTurn v3',
+      spec: metrics ? `${metrics.vadDurationMs}ms` : '30ms',
       active: isListening,
-      activeColor: 'border-blue-500/70 bg-blue-500/10 text-blue-400',
-      badge: metrics ? `${metrics.vadDurationMs}ms` : '30ms',
+      indicator: 'Voice Gate',
     },
     {
-      name: 'Speech-to-Text',
-      desc: config.stt === 'deepgram' ? 'Deepgram Nova-2' : config.stt === 'whisper' ? 'OpenAI Whisper' : 'Cartesia Listen',
-      icon: Layers,
+      step: '03',
+      name: 'STT Decode',
+      provider: config.stt === 'deepgram' ? 'Deepgram Nova-2' : config.stt === 'whisper' ? 'Whisper-1' : 'Cartesia STT',
+      spec: metrics ? `${metrics.sttDurationMs}ms` : '110ms',
       active: isProcessing,
-      activeColor: 'border-amber-500/70 bg-amber-500/10 text-amber-400',
-      badge: metrics ? `${metrics.sttDurationMs}ms` : '110ms',
+      indicator: 'Transcribe',
     },
     {
-      name: 'LLM Worker',
-      desc: config.llm === 'gemini-flash' ? 'Gemini 2.5 Flash' : config.llm === 'gpt-4o-mini' ? 'GPT-4o Mini' : 'Claude 3.5 Haiku',
-      icon: Cpu,
+      step: '04',
+      name: 'LLM Reason',
+      provider: config.llm === 'gemini-flash' ? 'Gemini 2.5 Flash' : config.llm === 'gpt-4o-mini' ? 'GPT-4o Mini' : 'Claude 3.5',
+      spec: metrics ? `${metrics.llmTtftMs}ms` : '190ms',
       active: isProcessing,
-      activeColor: 'border-emerald-500/70 bg-emerald-500/10 text-emerald-400',
-      badge: metrics ? `${metrics.llmTtftMs}ms` : '190ms',
+      indicator: 'Inference',
     },
     {
-      name: 'Text-to-Speech',
-      desc: config.tts === 'cartesia-sonic' ? 'Cartesia Sonic' : config.tts === 'elevenlabs' ? 'ElevenLabs v2.5' : 'OpenAI Alloy',
-      icon: Volume2,
+      step: '05',
+      name: 'TTS Egress',
+      provider: config.tts === 'cartesia-sonic' ? 'Cartesia Sonic' : config.tts === 'elevenlabs' ? 'ElevenLabs v2.5' : 'OpenAI Alloy',
+      spec: metrics ? `${metrics.ttsDurationMs}ms` : '95ms',
       active: isSpeaking,
-      activeColor: 'border-purple-500/70 bg-purple-500/10 text-purple-400',
-      badge: metrics ? `${metrics.ttsDurationMs}ms` : '95ms',
+      indicator: 'Playback',
     },
   ];
 
   return (
-    <section className="bg-zinc-950/60 border border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-lg backdrop-blur-sm">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+    <section className="bg-[#121316]/70 border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md transition-all">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-white/[0.06]">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-cyan-400" />
-            Frame-Based Pipeline Flow
+          <span className="text-[10px] font-mono tracking-[0.25em] uppercase text-white/50 block">
+            Acoustic Signal Processing Chain
+          </span>
+          <h2 className="text-base font-medium text-white/90 tracking-tight mt-0.5">
+            Sequential Frame Processor Architecture
           </h2>
-          <p className="text-xs text-zinc-400">
-            Real-time frame processors linked sequentially in memory
-          </p>
         </div>
 
-        {metrics && (
-          <div className="flex items-center gap-2 text-xs font-mono bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-zinc-300">
-            <span className="text-zinc-500">Total Roundtrip:</span>
-            <span className="text-cyan-400 font-semibold">{metrics.totalLatencyMs}ms</span>
+        <div className="flex items-center gap-4 text-xs font-mono">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/[0.02]">
+            <span className="text-white/40 uppercase text-[11px]">Roundtrip</span>
+            <span className="text-white font-semibold">{metrics ? `${metrics.totalLatencyMs}ms` : '385ms'}</span>
           </div>
-        )}
+          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/[0.02]">
+            <span className="text-white/40 uppercase text-[11px]">Sample Rate</span>
+            <span className="text-white font-semibold">24.0 kHz</span>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {stages.map((stage, idx) => {
-          const Icon = stage.icon;
-          return (
-            <div
-              key={stage.name}
-              className={`relative flex flex-col p-3 rounded-xl border transition-all duration-300 ${
-                stage.active
-                  ? stage.activeColor + ' shadow-md shadow-cyan-500/5'
-                  : 'border-zinc-800 bg-zinc-900/50 text-zinc-400'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className={`p-1.5 rounded-lg ${stage.active ? 'bg-zinc-950/50' : 'bg-zinc-800/50'}`}>
-                  <Icon className="w-4 h-4" />
-                </div>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-zinc-950/60 border border-zinc-800 text-zinc-300">
-                  {stage.badge}
-                </span>
-              </div>
-              <h3 className="text-xs font-semibold text-zinc-200">{stage.name}</h3>
-              <p className="text-[11px] text-zinc-400 truncate mt-0.5">{stage.desc}</p>
-
-              {idx < stages.length - 1 && (
-                <div className="hidden lg:block absolute -right-2.5 top-1/2 -translate-y-1/2 z-10">
-                  <ArrowRight className="w-3 h-3 text-zinc-600" />
-                </div>
-              )}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-5">
+        {stages.map((stage, idx) => (
+          <div
+            key={stage.name}
+            className={`relative flex flex-col justify-between p-4 rounded-xl border transition-all duration-300 ${
+              stage.active
+                ? 'border-white/30 bg-white/[0.06] text-white shadow-[0_0_20px_rgba(255,255,255,0.04)]'
+                : 'border-white/[0.05] bg-white/[0.015] text-white/60 hover:border-white/15'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-mono tracking-widest text-white/40">
+                {stage.step}
+              </span>
+              <span
+                className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                  stage.active ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]' : 'bg-white/15'
+                }`}
+              />
             </div>
-          );
-        })}
+
+            <div className="space-y-1">
+              <h3 className="text-xs font-semibold tracking-wide text-white uppercase">
+                {stage.name}
+              </h3>
+              <p className="text-[11px] text-white/50 truncate font-mono">
+                {stage.provider}
+              </p>
+            </div>
+
+            <div className="mt-3 pt-2.5 border-t border-white/[0.05] flex items-center justify-between text-[10px] font-mono text-white/40">
+              <span>{stage.indicator}</span>
+              <span className="text-white/75">{stage.spec}</span>
+            </div>
+
+            {idx < stages.length - 1 && (
+              <div className="hidden lg:flex absolute -right-2 top-1/2 -translate-y-1/2 z-10 w-4 h-4 rounded-full bg-[#0b0c0e] border border-white/10 items-center justify-center pointer-events-none">
+                <ArrowRight className="w-2.5 h-2.5 text-white/30" />
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </section>
   );

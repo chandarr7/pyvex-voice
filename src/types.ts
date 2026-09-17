@@ -61,3 +61,32 @@ export interface PipelineMetrics {
   ttsDurationMs: number;
   totalLatencyMs: number;
 }
+
+export type GeminiModelId =
+  | 'gemini-3.5-flash'
+  | 'gemini-3.1-flash-lite'
+  | 'gemini-3.1-pro-preview'
+  | 'gemini-3.8-flash';
+
+export interface GeminiChatMessage {
+  id: string;
+  role: 'user' | 'model';
+  content: string;
+  timestamp: number;
+  latencyMs?: number;
+  model?: string;
+  error?: boolean;
+}
+
+export interface GeminiChatRole {
+  id: string;
+  title: string;
+  category: string;
+  iconName: string;
+  tagline: string;
+  systemInstruction: string;
+  suggestedPrompts: string[];
+  recommendedModel: GeminiModelId;
+  colorAccent: string;
+}
+
