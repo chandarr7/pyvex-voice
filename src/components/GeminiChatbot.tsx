@@ -26,6 +26,7 @@ import {
   CornerDownLeft,
 } from 'lucide-react';
 import { GeminiChatMessage, GeminiModelId, GeminiChatRole } from '../types';
+import { api, describeApiError } from '../lib/api';
 import { GEMINI_CHAT_ROLES } from '../data/geminiRoles';
 
 interface GeminiChatbotProps {
@@ -172,44 +173,27 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
     setIsLoading(true);
 
     try {
-      // Build clean payload maintaining full multi-turn history
-      // Exclude initial system-switch banners if they were just local UI greetings
-      const historyPayload = updatedMessages.map((m) => ({
-        role: m.role,
+      // The whole thread goes to the server so the model sees the conversation,
+      // not just the latest line.
+      const turns = updatedMessages.map((m) => ({
+        role: (m.role === 'model' ? 'assistant' : 'user') as 'user' | 'assistant',
         content: m.content,
       }));
 
-      const res = await fetch('/api/gemini/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: historyPayload,
-          systemInstruction: systemInstruction,
-          model: selectedModel,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || data.error) {
-        throw new Error(data.error || 'Server returned an error');
-      }
+      const data = await api.chat({ turns, systemInstruction, model: selectedModel });
 
       const botMessage: GeminiChatMessage = {
         id: `model_${Date.now()}`,
         role: 'model',
-        content: data.text || '*(No response content returned)*',
-        timestamp: data.timestamp || Date.now(),
-        latencyMs: data.latencyMs,
-        model: data.model || selectedModel,
+        content: data.reply,
+        timestamp: Date.now(),
+        latencyMs: data.metrics.llmLatencyMs,
+        model: data.model,
       };
 
       setMessages((prev) => [...prev, botMessage]);
-    } catch (err: any) {
-      console.error('Chat error:', err);
-      const errText = err?.message || 'Failed to connect to Gemini service.';
+    } catch (err: unknown) {
+      const errText = describeApiError(err);
       setErrorMessage(errText);
 
       setMessages((prev) => [
@@ -217,7 +201,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
         {
           id: `error_${Date.now()}`,
           role: 'model',
-          content: `⚠️ **Error receiving response:** ${errText}\n\n*Please ensure your GEMINI_API_KEY is configured in Settings > Secrets.*`,
+          content: errText,
           timestamp: Date.now(),
           error: true,
           model: selectedModel,

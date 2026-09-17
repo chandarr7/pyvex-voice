@@ -15,7 +15,7 @@ import {
   Headphones,
 } from 'lucide-react';
 import { Persona, PYVEX_PERSONAS } from '../data/personas';
-import { playVoiceAudio, stopVoiceAudio } from '../utils/audioEngine';
+import { isSpeechSynthesisSupported, speak, stopSpeaking } from '../utils/audioEngine';
 import { DynamicAudioVisualizer } from './DynamicAudioVisualizer';
 
 interface HeroCarouselProps {
@@ -32,7 +32,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   // Default to 'male' as per segmented control spec: (Male selected in --purple-primary, Female muted)
   const [selectedGender, setSelectedGender] = useState<'male' | 'female'>('male');
-  const [apiKey, setApiKey] = useState('');
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isTestAgentActive, setIsTestAgentActive] = useState(false);
@@ -93,45 +93,53 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
   const activeVoice = activePersona.voices[selectedGender];
 
   const handleNext = useCallback(() => {
-    stopVoiceAudio();
+    stopSpeaking();
     setIsPlaying(false);
     setIsTestAgentActive(false);
     setCurrentIndex((prev) => (prev + 1) % PYVEX_PERSONAS.length);
   }, []);
 
   const handlePrev = useCallback(() => {
-    stopVoiceAudio();
+    stopSpeaking();
     setIsPlaying(false);
     setIsTestAgentActive(false);
     setCurrentIndex((prev) => (prev - 1 + PYVEX_PERSONAS.length) % PYVEX_PERSONAS.length);
   }, []);
 
+  /**
+   * Preview the persona's sample line with the browser's own voice.
+   *
+   * This is a local preview, not the persona's configured ElevenLabs voice:
+   * provider speech is generated server-side, and no provider key is ever
+   * handled in the browser.
+   */
   const handleToggleVoicePlay = async () => {
     if (isPlaying || isTestAgentActive) {
-      stopVoiceAudio();
+      stopSpeaking();
       setIsPlaying(false);
       setIsTestAgentActive(false);
       return;
     }
 
+    if (!isSpeechSynthesisSupported()) {
+      setPreviewError('This browser cannot play a voice preview.');
+      return;
+    }
+
+    setPreviewError(null);
     setIsTestAgentActive(true);
-    await playVoiceAudio({
-      text: activeVoice.sampleScript,
-      elevenLabsVoiceId: activeVoice.elevenLabsId,
-      apiKey: apiKey.trim(),
-      gender: selectedGender,
-      pitch: activeVoice.pitch,
-      rate: activeVoice.rate,
-      onStateChange: (playing) => {
-        setIsPlaying(playing);
-        if (!playing) {
-          // Keep active for live mic mirroring for a few seconds
-          setTimeout(() => {
-            setIsTestAgentActive((current) => (isPlaying ? current : false));
-          }, 5000);
-        }
-      },
-    });
+    try {
+      await speak(activeVoice.sampleScript, {
+        pitch: activeVoice.pitch,
+        rate: activeVoice.rate,
+        onStart: () => setIsPlaying(true),
+      });
+    } catch {
+      setPreviewError('Could not play the preview.');
+    } finally {
+      setIsPlaying(false);
+      setIsTestAgentActive(false);
+    }
   };
 
   // Keyboard navigation for personas
@@ -289,7 +297,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                     id={`persona-card-tab-${p.id}`}
                     type="button"
                     onClick={() => {
-                      stopVoiceAudio();
+                      stopSpeaking();
                       setIsPlaying(false);
                       setIsTestAgentActive(false);
                       setCurrentIndex(index);
@@ -552,7 +560,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                     id="gender-male-toggle"
                     onClick={() => {
                       if (selectedGender !== 'male') {
-                        stopVoiceAudio();
+                        stopSpeaking();
                         setIsPlaying(false);
                         setSelectedGender('male');
                       }
@@ -574,7 +582,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                     id="gender-female-toggle"
                     onClick={() => {
                       if (selectedGender !== 'female') {
-                        stopVoiceAudio();
+                        stopSpeaking();
                         setIsPlaying(false);
                         setSelectedGender('female');
                       }
@@ -672,39 +680,18 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                 &quot;{activeVoice.sampleScript}&quot;
               </div>
 
-              {/* Input Field: Masked text input for API keys (background: #0D0F13; border: 1px solid #292B3A) */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono uppercase tracking-wider text-[#A4A3B2] flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <Key className="w-2.5 h-2.5 text-[#9655FF]" />
-                    <span>{activePersona.voiceProvider} Key (Optional Override)</span>
-                  </span>
-                  <span className="text-[9px] text-[#666879]">
-                    Leave blank for default {activePersona.voiceProvider} audio
-                  </span>
-                </label>
-
-                <div className="relative">
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={`${activePersona.voiceProvider === 'ElevenLabs' ? 'xi-...' : 'sk-...' } (Leave blank for studio audio)`}
-                    className="w-full rounded-xl px-3.5 py-2.5 text-xs font-mono text-[#F4F2F8] placeholder-[#666879] focus:outline-none focus:border-[#7047FF] transition-colors pr-10"
-                    style={{
-                      background: '#0D0F13',
-                      border: '1px solid #292B3A',
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#666879] hover:text-[#F4F2F8] transition-colors"
-                  >
-                    {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
+              {/*
+                Provider voices are configured per agent and synthesised
+                server-side, so there is no key to enter here.
+              */}
+              <p className="text-[10px] font-mono uppercase tracking-wider text-[#666879]">
+                Preview uses your browser voice. Provider voices are configured per agent.
+              </p>
+              {previewError && (
+                <p className="text-[10px] text-red-300/90" role="alert">
+                  {previewError}
+                </p>
+              )}
 
               {/* Action Button: Full-width glowing pill button "▶ TEST PYVEX VOICE" with drop shadow (0 4px 15px rgba(112, 71, 255, 0.35)) */}
               <button

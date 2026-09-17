@@ -1,270 +1,162 @@
-// Audio engine handling ElevenLabs API streaming with Web Speech / Web Audio fallback & Autoplay policy recovery
-
-let activeAudio: HTMLAudioElement | null = null;
-let audioContext: AudioContext | null = null;
-let analyserNode: AnalyserNode | null = null;
-let dataArray: Uint8Array | null = null;
-let isPlayingCallback: ((playing: boolean) => void) | null = null;
-let speechKeepAliveTimer: any = null;
-
-export const getAudioAnalyser = () => {
-  return { analyserNode, dataArray };
-};
-
 /**
- * Ensures browser AudioContext is un-suspended.
- * Must be called in response to or following a user gesture (click/touch/keypress).
+ * Browser speech playback.
+ *
+ * This is a development-grade voice: the browser's own synthesiser, not a
+ * production TTS pipeline. `speak()` resolves only once audio has actually
+ * started, and rejects when nothing could be played, so callers never show a
+ * speaking state that isn't real.
+ *
+ * Every resource acquired here is released in `stopSpeaking()`: one utterance
+ * is audible at a time and nothing outlives it.
  */
-export const ensureAudioUnlocked = async (): Promise<boolean> => {
-  try {
-    if (!audioContext) {
-      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume();
-    }
-    if ('speechSynthesis' in window) {
+
+export type SpeechFailureReason = 'unsupported' | 'autoplay-blocked' | 'synthesis-failed';
+
+export class SpeechError extends Error {
+  readonly reason: SpeechFailureReason;
+
+  constructor(reason: SpeechFailureReason, message: string) {
+    super(message);
+    this.name = 'SpeechError';
+    this.reason = reason;
+  }
+}
+
+export function isSpeechSynthesisSupported(): boolean {
+  // Presence of the key is not enough: some environments define it as undefined.
+  return typeof window !== 'undefined' && Boolean(window.speechSynthesis);
+}
+
+interface ActivePlayback {
+  utterance: SpeechSynthesisUtterance;
+  keepAliveTimer: ReturnType<typeof setInterval> | null;
+}
+
+let active: ActivePlayback | null = null;
+
+/** Chrome pauses synthesis after ~15s; nudging it keeps long replies going. */
+function startKeepAlive(): ReturnType<typeof setInterval> {
+  return setInterval(() => {
+    if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+      window.speechSynthesis.pause();
       window.speechSynthesis.resume();
     }
-    return audioContext.state === 'running';
-  } catch (err) {
-    console.warn('Unable to unlock AudioContext:', err);
-    return false;
-  }
-};
+  }, 10_000);
+}
 
-export const stopVoiceAudio = () => {
-  if (speechKeepAliveTimer) {
-    clearInterval(speechKeepAliveTimer);
-    speechKeepAliveTimer = null;
-  }
-  if (activeAudio) {
-    activeAudio.pause();
-    activeAudio.currentTime = 0;
-    activeAudio = null;
-  }
-  if ('speechSynthesis' in window) {
+export function stopSpeaking(): void {
+  if (active?.keepAliveTimer) clearInterval(active.keepAliveTimer);
+  active = null;
+  if (isSpeechSynthesisSupported()) {
     window.speechSynthesis.cancel();
-    window.speechSynthesis.resume();
   }
-  if (isPlayingCallback) {
-    isPlayingCallback(false);
-  }
-};
+}
+
+export function isSpeaking(): boolean {
+  return active !== null;
+}
 
 /**
- * Generates an acoustic synthesizer tone sequence through the Web Audio API.
- * Guarantees audible feedback even in headless browsers, Linux sandbox environments, or where TTS voices are missing.
+ * Speak `text`, resolving when playback ends.
+ *
+ * `onStart` fires on the synthesiser's own start event, which is the first
+ * moment the claim "speaking" is true.
  */
-export const playAcousticToneFallback = async (durationMs = 1200): Promise<void> => {
-  try {
-    await ensureAudioUnlocked();
-    if (!audioContext) return;
-
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-
-    osc.type = 'sine';
-    // Elegant arpeggio sequence
-    const now = audioContext.currentTime;
-    osc.frequency.setValueAtTime(440, now);
-    osc.frequency.exponentialRampToValueAtTime(880, now + 0.15);
-    osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.35);
-
-    gain.gain.setValueAtTime(0.12, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + (durationMs / 1000));
-
-    osc.connect(gain);
-    gain.connect(audioContext.destination);
-
-    osc.start(now);
-    osc.stop(now + (durationMs / 1000));
-  } catch (err) {
-    console.warn('Acoustic tone generation error:', err);
+export function speak(
+  text: string,
+  options: { pitch?: number; rate?: number; onStart?: () => void } = {}
+): Promise<void> {
+  if (!isSpeechSynthesisSupported()) {
+    return Promise.reject(
+      new SpeechError('unsupported', 'This browser has no speech synthesis.')
+    );
   }
-};
+  if (!text.trim()) {
+    return Promise.reject(new SpeechError('synthesis-failed', 'Nothing to speak.'));
+  }
 
-export const playVoiceAudio = async ({
-  text,
-  elevenLabsVoiceId,
-  apiKey,
-  gender,
-  pitch = 1,
-  rate = 1,
-  onStateChange,
-  onAutoplayBlocked,
-}: {
-  text: string;
-  elevenLabsVoiceId: string;
-  apiKey?: string;
-  gender: 'male' | 'female';
-  pitch?: number;
-  rate?: number;
-  onStateChange?: (isPlaying: boolean) => void;
-  onAutoplayBlocked?: () => void;
-}) => {
-  stopVoiceAudio();
-  isPlayingCallback = onStateChange || null;
+  stopSpeaking();
 
-  await ensureAudioUnlocked();
+  return new Promise<void>((resolve, reject) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.pitch = options.pitch ?? 1;
+    utterance.rate = options.rate ?? 1;
 
-  if (onStateChange) onStateChange(true);
+    const playback: ActivePlayback = { utterance, keepAliveTimer: null };
+    active = playback;
 
-  // 1. Check if user provided an ElevenLabs API key
-  const trimmedKey = apiKey?.trim();
-  if (trimmedKey) {
-    try {
-      const response = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoiceId}/stream?optimize_streaming_latency=3`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': trimmedKey,
-          },
-          body: JSON.stringify({
-            text,
-            model_id: 'eleven_turbo_v2_5',
-            voice_settings: {
-              stability: 0.5,
-              similarity_boost: 0.8,
-            },
-          }),
-        }
+    const cleanup = () => {
+      if (playback.keepAliveTimer) clearInterval(playback.keepAliveTimer);
+      playback.keepAliveTimer = null;
+      if (active === playback) active = null;
+    };
+
+    utterance.onstart = () => {
+      playback.keepAliveTimer = startKeepAlive();
+      options.onStart?.();
+    };
+    utterance.onend = () => {
+      cleanup();
+      resolve();
+    };
+    utterance.onerror = (event) => {
+      cleanup();
+      // A cancel is this module stopping itself, e.g. for a barge-in.
+      if (event.error === 'canceled' || event.error === 'interrupted') {
+        resolve();
+        return;
+      }
+      reject(
+        new SpeechError(
+          event.error === 'not-allowed' ? 'autoplay-blocked' : 'synthesis-failed',
+          `Speech synthesis failed: ${event.error}`
+        )
       );
+    };
 
-      if (response.ok) {
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-        activeAudio = audio;
+    window.speechSynthesis.speak(utterance);
+  });
+}
 
-        // Connect to web audio analyser
-        try {
-          if (!audioContext) {
-            audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-          }
-          if (audioContext.state === 'suspended') {
-            await audioContext.resume();
-          }
-          const source = audioContext.createMediaElementSource(audio);
-          analyserNode = audioContext.createAnalyser();
-          analyserNode.fftSize = 64;
-          dataArray = new Uint8Array(analyserNode.frequencyBinCount);
-          source.connect(analyserNode);
-          analyserNode.connect(audioContext.destination);
-        } catch (ctxErr) {
-          console.warn('AudioContext hook failed, playing directly:', ctxErr);
-        }
+/**
+ * Play an audio payload and release everything it allocated.
+ *
+ * The object URL is revoked and the element detached on every exit path,
+ * including failure, so repeated playback cannot accumulate blobs.
+ */
+export function playAudioBlob(blob: Blob, onStart?: () => void): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(blob);
+    const audio = new Audio(objectUrl);
 
-        audio.onended = () => {
-          if (onStateChange) onStateChange(false);
-          activeAudio = null;
-        };
-        audio.onerror = () => {
-          if (onStateChange) onStateChange(false);
-          activeAudio = null;
-        };
+    const release = () => {
+      audio.onplaying = null;
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+      URL.revokeObjectURL(objectUrl);
+    };
 
-        try {
-          await audio.play();
-          return;
-        } catch (playErr: any) {
-          if (playErr.name === 'NotAllowedError') {
-            console.warn('Audio play() blocked by browser Autoplay policy. Awaiting user interaction.');
-            if (onAutoplayBlocked) onAutoplayBlocked();
-          }
-        }
-      } else {
-        console.warn(`ElevenLabs API returned ${response.status}, falling back to Web Speech`);
-      }
-    } catch (apiErr) {
-      console.warn('ElevenLabs API request failed, falling back to Web Speech:', apiErr);
-    }
-  }
+    audio.onplaying = () => onStart?.();
+    audio.onended = () => {
+      release();
+      resolve();
+    };
+    audio.onerror = () => {
+      release();
+      reject(new SpeechError('synthesis-failed', 'Audio playback failed.'));
+    };
 
-  // 2. High-fidelity Web Speech API fallback with Chrome keep-alive & speech un-freeze
-  if ('speechSynthesis' in window) {
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.pitch = pitch;
-      utterance.rate = rate;
-
-      // Pick appropriate system voice matching gender
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        const isFemale = gender === 'female';
-        const preferred = voices.find((v) => {
-          const name = v.name.toLowerCase();
-          if (isFemale) {
-            return (
-              name.includes('female') ||
-              name.includes('samantha') ||
-              name.includes('karen') ||
-              name.includes('victoria') ||
-              name.includes('zira') ||
-              name.includes('natural')
-            );
-          } else {
-            return (
-              name.includes('male') ||
-              name.includes('david') ||
-              name.includes('alex') ||
-              name.includes('daniel') ||
-              name.includes('george') ||
-              name.includes('guy')
-            );
-          }
-        });
-        if (preferred) {
-          utterance.voice = preferred;
-        }
-      }
-
-      utterance.onstart = () => {
-        if (onStateChange) onStateChange(true);
-      };
-
-      utterance.onend = () => {
-        if (speechKeepAliveTimer) {
-          clearInterval(speechKeepAliveTimer);
-          speechKeepAliveTimer = null;
-        }
-        if (onStateChange) onStateChange(false);
-      };
-
-      utterance.onerror = (e) => {
-        if (speechKeepAliveTimer) {
-          clearInterval(speechKeepAliveTimer);
-          speechKeepAliveTimer = null;
-        }
-        console.warn('Web Speech Synthesis error, triggering acoustic chime fallback:', e);
-        playAcousticToneFallback(1200);
-        if (onStateChange) onStateChange(false);
-      };
-
-      // Workaround for Chrome's 15-second speech pause bug
-      speechKeepAliveTimer = setInterval(() => {
-        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-          window.speechSynthesis.pause();
-          window.speechSynthesis.resume();
-        }
-      }, 10000);
-
-      window.speechSynthesis.speak(utterance);
-      return;
-    } catch (synthErr) {
-      console.warn('Speech synthesis invocation failed:', synthErr);
-    }
-  }
-
-  // 3. Guaranteed Acoustic Waveform fallback if speech API is unavailable or blocked
-  playAcousticToneFallback(1500);
-  const simulatedDurationMs = Math.max(2000, text.length * 45);
-  setTimeout(() => {
-    if (onStateChange) onStateChange(false);
-  }, simulatedDurationMs);
-};
+    audio.play().catch((err: DOMException) => {
+      release();
+      reject(
+        new SpeechError(
+          err.name === 'NotAllowedError' ? 'autoplay-blocked' : 'synthesis-failed',
+          err.message
+        )
+      );
+    });
+  });
+}
