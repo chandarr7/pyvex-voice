@@ -86,9 +86,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
           >
             {user ? (
               <div className="flex items-center gap-2">
-                {user.photoURL ? (
+                {user.avatarUrl ? (
                   <img
-                    src={user.photoURL}
+                    src={user.avatarUrl}
                     alt={user.displayName || 'User'}
                     className="w-5 h-5 rounded-full object-cover border border-[#3E4259]"
                   />
@@ -100,7 +100,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
                 <span className="max-w-[100px] truncate text-[11px] text-[#F4F2F8]">
                   {user.displayName || user.email?.split('@')[0]}
                 </span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Firestore Connected" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Signed in" />
               </div>
             ) : (
               <div className="flex items-center gap-1.5 text-[#A4A3B2] hover:text-[#F4F2F8]">

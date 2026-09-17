@@ -74,7 +74,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <h2 className="text-base font-semibold text-white tracking-tight flex items-center gap-2">
                 Cloud Database & Authentication
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Firestore Connected
+                  Database connected
                 </span>
               </h2>
               <p className="text-xs text-neutral-400">
@@ -164,7 +164,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   Sign in to PyVex Voice Platform
                 </h3>
                 <p className="text-xs text-neutral-400 leading-relaxed">
-                  Log in to securely persist custom voice agents, sync Silero VAD / Gemini pipelines across sessions, and review recorded call transcripts in Google Cloud Firestore.
+                  Log in to securely persist custom voice agents, sync Silero VAD / Gemini pipelines across sessions, and review recorded call transcripts.
                 </p>
               </div>
 
@@ -214,7 +214,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     Live Cloud Sync
                   </div>
                   <p className="text-[11px] text-neutral-500">
-                    Real-time state synchronization with persistent Firestore.
+                    State is persisted to your account.
                   </p>
                 </div>
               </div>
@@ -227,9 +227,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   {/* User Profile Card */}
                   <div className="p-5 rounded-2xl bg-neutral-950/80 border border-neutral-800 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      {user.photoURL ? (
+                      {user.avatarUrl ? (
                         <img
-                          src={user.photoURL}
+                          src={user.avatarUrl}
                           alt={user.displayName || 'User'}
                           className="w-14 h-14 rounded-2xl border border-neutral-700 object-cover"
                         />
@@ -251,7 +251,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           {user.email}
                         </p>
                         <p className="text-[11px] text-neutral-500 font-mono mt-1">
-                          UID: {user.uid}
+                          User ID: {user.id}
                         </p>
                       </div>
                     </div>
@@ -265,10 +265,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Firestore Database Overview */}
+                  {/* Stored data overview */}
                   <div className="space-y-3">
                     <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-                      Firestore Database Configuration
+                      Stored data
                     </h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       <div className="p-4 rounded-xl bg-neutral-950/60 border border-neutral-800 space-y-1">
@@ -276,7 +276,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           Database Collection
                         </span>
                         <div className="text-xs font-mono text-amber-400 font-medium">
-                          /users/{user.uid.slice(0, 8)}...
+                          /users/{user.id.slice(0, 8)}...
                         </div>
                         <div className="text-[11px] text-neutral-400 flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
@@ -322,7 +322,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         Saved Voice Agents ({savedAgents.length})
                       </h4>
                       <p className="text-[11px] text-neutral-500">
-                        Custom pipeline configurations persisted in your Firestore account
+                        Custom pipeline configurations saved to your account
                       </p>
                     </div>
                   </div>
@@ -397,7 +397,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         Call Transcripts & Metrics ({savedSessions.length})
                       </h4>
                       <p className="text-[11px] text-neutral-500">
-                        Historical voice conversations saved to Cloud Firestore
+                        Past conversations saved to your account
                       </p>
                     </div>
                   </div>
@@ -492,7 +492,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         <div className="px-6 py-3.5 border-t border-neutral-800 bg-neutral-900/60 flex items-center justify-between text-xs text-neutral-400">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-mono text-[11px]">Database: Firebase Firestore v10</span>
+            <span className="font-mono text-[11px]">Database: Supabase Postgres</span>
           </div>
           <button
             onClick={onClose}

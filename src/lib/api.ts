@@ -1,11 +1,11 @@
 /**
  * Typed client for the Pyvex Voice API.
  *
- * Every call carries the signed-in user's Firebase ID token, and every failure
- * arrives as an ApiError with the server's code so the UI can say what actually
- * went wrong instead of guessing.
+ * Every call carries the signed-in user's Supabase access token, and every
+ * failure arrives as an ApiError with the server's code so the UI can say what
+ * actually went wrong instead of guessing.
  */
-import { auth } from './firebase';
+import { supabase } from './supabase';
 
 export type ApiErrorCode =
   | 'INVALID_REQUEST'
@@ -63,9 +63,15 @@ export function describeApiError(error: unknown): string {
 }
 
 async function authHeader(): Promise<Record<string, string>> {
-  const user = auth.currentUser;
-  if (!user) throw new ApiError('AUTH_REQUIRED', 'Not signed in.', 401);
-  return { Authorization: `Bearer ${await user.getIdToken()}` };
+  if (!supabase) {
+    throw new ApiError('AUTH_NOT_CONFIGURED', 'Sign-in is not configured.', 503);
+  }
+  // getSession refreshes an expired access token before returning it.
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session) {
+    throw new ApiError('AUTH_REQUIRED', 'Not signed in.', 401);
+  }
+  return { Authorization: `Bearer ${data.session.access_token}` };
 }
 
 interface RequestOptions {

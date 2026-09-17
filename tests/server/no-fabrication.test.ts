@@ -137,6 +137,14 @@ describe('no fabricated telemetry or transport', () => {
     expect(JSON.stringify(res.body)).not.toContain('framesProcessed');
   });
 
+  it('names the auth provider it actually uses', async () => {
+    const { app } = buildApp();
+    const res = await request(app).get('/api/status');
+
+    expect(res.body.components.auth.provider).toBe('supabase');
+    expect(JSON.stringify(res.body)).not.toContain('firebase');
+  });
+
   it('advertises no provider it cannot run', async () => {
     const { app } = buildApp();
     const res = await request(app).get('/api/services');

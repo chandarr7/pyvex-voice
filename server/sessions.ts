@@ -6,8 +6,8 @@
  * recorded, so a client cannot rewrite what was said earlier in the call.
  *
  * State lives in this process and is lost on restart. That is adequate while a
- * session is a single live conversation; durable transcripts belong in
- * Firestore alongside the rest of the user's data.
+ * session is a single live conversation; durable transcripts belong in the
+ * call_sessions table alongside the rest of the user's data.
  */
 import { randomUUID } from 'node:crypto';
 

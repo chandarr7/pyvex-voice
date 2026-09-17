@@ -2,7 +2,7 @@
  * The Pyvex Voice HTTP API.
  *
  * Built as a factory so tests can supply their own token verifier, LLM service
- * and clock, and exercise the real routes without a network or a Firebase
+ * and clock, and exercise the real routes without a network or a Supabase
  * project.
  *
  * The rule the whole surface is built around: an operation that failed returns
@@ -98,7 +98,7 @@ export function createApp(deps: AppDependencies): Express {
           provider: 'google-gemini',
           models: supportedModels(env).map((m) => m.id),
         },
-        auth: { status: deps.verifier ? 'ready' : 'not_configured', provider: 'firebase' },
+        auth: { status: deps.verifier ? 'ready' : 'not_configured', provider: 'supabase' },
         stt: { status: 'not_implemented' },
         tts: { status: 'not_implemented' },
         vad: { status: 'not_implemented' },

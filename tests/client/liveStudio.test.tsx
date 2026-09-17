@@ -7,16 +7,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
-vi.mock('../../src/lib/firebase', () => ({
-  auth: { currentUser: null },
-  db: {},
-  googleProvider: {},
-  signInWithPopup: vi.fn(),
-  firebaseSignOut: vi.fn(),
-  onAuthStateChanged: vi.fn(() => () => {}),
-  handleFirestoreError: vi.fn(),
-  OperationType: { READ: 'read', WRITE: 'write', DELETE: 'delete' },
-  app: {},
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: null,
+  isSupabaseConfigured: false,
+  toAppUser: vi.fn(),
+  handleDatabaseError: vi.fn(),
 }));
 
 vi.mock('../../src/context/AuthContext', () => ({

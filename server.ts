@@ -9,14 +9,14 @@ import path from 'node:path';
 import express from 'express';
 
 import { createApp } from './server/app.js';
-import { createFirebaseVerifier } from './server/auth.js';
+import { createSupabaseVerifier } from './server/auth.js';
 import { SessionStore } from './server/sessions.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? '0.0.0.0';
 
 async function startServer() {
-  const verifier = await createFirebaseVerifier();
+  const verifier = await createSupabaseVerifier();
   if (!verifier) {
     // Fail closed: authenticated routes will reject with AUTH_NOT_CONFIGURED
     // rather than serving anyone. Said once, at boot, so it is not a surprise.
@@ -24,7 +24,7 @@ async function startServer() {
       JSON.stringify({
         event: 'auth.not_configured',
         message:
-          'No Firebase credentials found. Authenticated API routes will reject all requests. Set FIREBASE_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS.',
+          'No Supabase project configured. Authenticated API routes will reject all requests. Set SUPABASE_URL.',
       })
     );
   }
