@@ -1,0 +1,10 @@
+{
+  "name": "Pyvex Voice - Pipecat Voice Agent",
+  "description": "Real-time voice and multimodal AI agent platform with interactive pipeline, speech recognition, and live conversational controls.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
