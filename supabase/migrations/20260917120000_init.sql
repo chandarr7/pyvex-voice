@@ -130,8 +130,7 @@ language plpgsql
 set search_path = ''
 as $$
 begin
-  if new.role is distinct from old.role
-     and coalesce(current_setting('request.jwt.claim.role', true), '') = 'authenticated' then
+  if new.role is distinct from old.role and coalesce(auth.role(), '') = 'authenticated' then
     raise exception 'role is not self-assignable'
       using errcode = 'insufficient_privilege';
   end if;
@@ -213,7 +212,13 @@ drop policy if exists call_sessions_delete_own on public.call_sessions;
 create policy call_sessions_delete_own on public.call_sessions
   for delete to authenticated using ((select auth.uid()) = user_id);
 
--- anon holds no grants on these tables; only a signed-in role reaches them.
+-- Granted explicitly rather than left to the project's default privileges: a
+-- table with no grant rejects every statement before RLS is ever consulted.
+grant select, insert, update, delete on public.profiles to authenticated;
+grant select, insert, update, delete on public.voice_agents to authenticated;
+grant select, insert, update, delete on public.call_sessions to authenticated;
+
+-- anon holds nothing; only a signed-in role reaches these tables.
 revoke all on public.profiles from anon;
 revoke all on public.voice_agents from anon;
 revoke all on public.call_sessions from anon;
