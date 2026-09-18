@@ -12,9 +12,9 @@ Run it with::
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
-import uuid
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
@@ -75,6 +75,9 @@ class _State:
         # One event log per live session, so the API can read back what
         # actually happened rather than being told what should have.
         self.sessions: dict[str, SessionEventLog] = {}
+        # Strong references to running conversations. Without them the event
+        # loop is free to garbage-collect a task mid-call.
+        self.tasks: set[asyncio.Task[None]] = set()
 
 
 def _ice_servers() -> list[IceServer]:
@@ -116,6 +119,10 @@ def create_app(config: WorkerConfig | None = None) -> FastAPI:
         state.handler = SmallWebRTCRequestHandler(ice_servers=_ice_servers())
         logger.info("Voice worker signalling ready")
         yield
+        for task in list(state.tasks):
+            task.cancel()
+        if state.tasks:
+            await asyncio.gather(*state.tasks, return_exceptions=True)
         if state.handler is not None:
             await state.handler.close()
         state.sessions.clear()
@@ -192,7 +199,12 @@ def create_app(config: WorkerConfig | None = None) -> FastAPI:
             voice_profile_id=request.voice_profile_id,
         )
 
+        # Captured so a rejected negotiation can close the peer connection the
+        # handler already built, rather than leaving it holding sockets.
+        negotiated: dict[str, SmallWebRTCConnection] = {}
+
         async def on_connection(connection: SmallWebRTCConnection) -> None:
+            negotiated["connection"] = connection
             events.emit("transport.connecting", pcId=connection.pc_id)
 
             async def run() -> None:
@@ -209,9 +221,13 @@ def create_app(config: WorkerConfig | None = None) -> FastAPI:
                     # session is dropped so a retry starts clean.
                     state.sessions.pop(request.session_id, None)
 
-            # Detached: negotiation must return the answer now, not after the
-            # conversation ends.
-            connection.create_task(run(), name=f"session-{request.session_id}")
+            # Detached, because negotiation must return the answer now rather
+            # than when the conversation ends. The connection's own task
+            # manager is not set up at this point, so this is scheduled on the
+            # loop and held in `state.tasks` to keep it from being collected.
+            task = asyncio.create_task(run(), name=f"session-{request.session_id}")
+            state.tasks.add(task)
+            task.add_done_callback(state.tasks.discard)
 
         try:
             answer = await state.handler.handle_web_request(
@@ -225,13 +241,35 @@ def create_app(config: WorkerConfig | None = None) -> FastAPI:
             )
         except (PersonaNotFoundError, VoiceNotFoundError) as exc:
             state.sessions.pop(request.session_id, None)
+            connection = negotiated.pop("connection", None)
+            if connection is not None:
+                await connection.disconnect()
             raise HTTPException(
                 status_code=400, detail={"code": "SESSION_UNRESOLVABLE", "message": str(exc)}
             ) from exc
 
-        if not answer:
+        async def reject(status: int, detail: dict[str, str]) -> HTTPException:
             state.sessions.pop(request.session_id, None)
-            raise HTTPException(status_code=502, detail={"code": "NEGOTIATION_FAILED"})
+            connection = negotiated.pop("connection", None)
+            if connection is not None:
+                await connection.disconnect()
+            return HTTPException(status_code=status, detail=detail)
+
+        if not answer:
+            raise await reject(502, {"code": "NEGOTIATION_FAILED"})
+
+        # An unusable offer still yields a syntactically valid answer with no
+        # media section. Returning it would have the browser negotiate against
+        # nothing and only discover the failure on a timeout, so it is refused
+        # here instead.
+        if "m=audio" not in answer.get("sdp", ""):
+            raise await reject(
+                400,
+                {
+                    "code": "NO_AUDIO_NEGOTIATED",
+                    "message": "The offer did not negotiate an audio track.",
+                },
+            )
 
         return answer
 

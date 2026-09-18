@@ -25,3 +25,9 @@ where = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning"]
+# Separated so ordinary CI needs neither a socket nor a paid credential.
+markers = [
+  "integration: exercises real sockets; needs no provider credentials",
+  "provider_live: calls a paid provider; needs real credentials",
+]
+addopts = "-m 'not integration and not provider_live'"

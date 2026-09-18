@@ -65,3 +65,9 @@ jobs:
       - name: Test
         working-directory: voice
         run: .venv/bin/python -m pytest -q
+
+      # Real sockets, still no credentials: a genuine aiortc peer negotiates
+      # against the worker and must reach a connected peer connection.
+      - name: Integration (real WebRTC negotiation)
+        working-directory: voice
+        run: .venv/bin/python -m pytest -q -m integration
