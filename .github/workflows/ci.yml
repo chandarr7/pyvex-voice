@@ -37,3 +37,31 @@ jobs:
 
       - name: Build client and server bundles
         run: npm run build
+
+  voice:
+    name: Voice worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        working-directory: voice
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python -e ".[dev]"
+
+      # No provider credentials: the suite covers assembly, configuration and
+      # per-session isolation, which need none.
+      - name: Test
+        working-directory: voice
+        run: .venv/bin/python -m pytest -q
