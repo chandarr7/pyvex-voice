@@ -13,9 +13,16 @@ private boundary, so no provider or worker credential ever reaches the browser.
 
 ## 1. Supabase
 
-Create a project, then apply `supabase/migrations/20260917120000_init.sql`
-(dashboard SQL editor, or `supabase db push`). Enable the Google provider under
-Authentication → Providers and add `http://localhost:3000` as a redirect URL.
+Apply every file in `supabase/migrations/` in filename order. The second one is
+not optional: it removes a TRUNCATE privilege that Supabase's default
+privileges grant to `authenticated`, and TRUNCATE is not subject to row-level
+security.
+
+Enable the Google provider under Authentication → Providers, and add
+`http://localhost:3000` to Authentication → URL Configuration as both the Site
+URL and an allowed redirect. The callback URI Google itself needs is
+`https://<project-ref>.supabase.co/auth/v1/callback` — that goes in the Google
+Cloud OAuth client, not in Supabase.
 
 From Settings → API take the project URL and the anon key.
 
@@ -97,3 +104,8 @@ reserved for tests that call a paid provider and is never part of a default run.
   transport is proven by an integration test against a real peer, and the
   pipeline is proven by unit tests, but the two have not been exercised
   together with real provider credentials.
+- Google sign-in has not been exercised end to end. The provider needs an OAuth
+  client that only an account owner can create.
+- `SUPABASE_SERVICE_ROLE_KEY` appears in `env.example` for completeness but no
+  code reads it. The API authenticates by verifying a token's signature, not by
+  holding a privileged key, so leaving it unset is correct.
