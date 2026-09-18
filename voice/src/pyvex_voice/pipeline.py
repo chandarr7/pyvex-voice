@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.observers.base_observer import BaseObserver
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -70,6 +71,7 @@ def build_session(
     persona: Persona,
     voice: VoiceProfile,
     idle_timeout_secs: float | None = None,
+    observers: list[BaseObserver] | None = None,
 ) -> VoiceSession:
     """Assemble the pipeline for one conversation.
 
@@ -79,6 +81,8 @@ def build_session(
         persona: The persona this conversation plays.
         voice: The voice this conversation speaks with.
         idle_timeout_secs: Idle cutoff for the worker, or None for the default.
+        observers: Watchers for this session's frames. They only observe, so
+            they cannot add latency to the audio path.
 
     Returns:
         The session's worker, context and resolved voice.
@@ -140,6 +144,7 @@ def build_session(
         pipeline,
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
         idle_timeout_secs=idle_timeout_secs,
+        observers=observers,
     )
 
     return VoiceSession(

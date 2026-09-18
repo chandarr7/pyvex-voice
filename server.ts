@@ -11,6 +11,7 @@ import express from 'express';
 import { createApp } from './server/app.js';
 import { createSupabaseVerifier } from './server/auth.js';
 import { SessionStore } from './server/sessions.js';
+import { VoiceSessionStore } from './server/voiceSessions.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -32,7 +33,10 @@ async function startServer() {
   const sessions = new SessionStore();
   sessions.startSweeper();
 
-  const app = createApp({ verifier, sessions });
+  const voiceSessions = new VoiceSessionStore();
+  voiceSessions.startSweeper();
+
+  const app = createApp({ verifier, sessions, voiceSessions });
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
@@ -57,6 +61,8 @@ async function startServer() {
       console.log(JSON.stringify({ event: 'server.shutdown', signal }));
       sessions.stopSweeper();
       sessions.clear();
+      voiceSessions.stopSweeper();
+      voiceSessions.clear();
       server.close(() => process.exit(0));
     });
   }

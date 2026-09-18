@@ -19,11 +19,16 @@ import { defaultModel, isSupportedModel, supportedModels } from './models.js';
 import { PRESET_FLOWS, findFlow, isKnownFlow } from './personas.js';
 import { createRateLimiter } from './rateLimit.js';
 import { SessionStore, toSummary } from './sessions.js';
+import { createVoiceRouter } from './voiceRoutes.js';
+import { VoiceSessionStore } from './voiceSessions.js';
+import { createVoiceWorkerClient, type VoiceWorkerClient } from './voiceWorker.js';
 
 export interface AppDependencies {
   verifier: TokenVerifier | null;
   gemini?: GeminiService;
   sessions?: SessionStore;
+  voiceSessions?: VoiceSessionStore;
+  voiceWorker?: VoiceWorkerClient;
   env?: NodeJS.ProcessEnv;
   /** Disabled in tests so limits do not leak between cases. */
   enableRateLimit?: boolean;
@@ -53,6 +58,8 @@ export function createApp(deps: AppDependencies): Express {
   const env = deps.env ?? process.env;
   const gemini = deps.gemini ?? createGeminiService(env);
   const sessions = deps.sessions ?? new SessionStore();
+  const voiceSessions = deps.voiceSessions ?? new VoiceSessionStore();
+  const voiceWorker = deps.voiceWorker ?? createVoiceWorkerClient(env);
   const app = express();
 
   app.use(express.json({ limit: '64kb' }));
@@ -99,12 +106,17 @@ export function createApp(deps: AppDependencies): Express {
           models: supportedModels(env).map((m) => m.id),
         },
         auth: { status: deps.verifier ? 'ready' : 'not_configured', provider: 'supabase' },
-        stt: { status: 'not_implemented' },
-        tts: { status: 'not_implemented' },
-        vad: { status: 'not_implemented' },
-        transport: { status: 'not_implemented' },
+        voice: {
+          // Reported by the worker itself; this process cannot know whether a
+          // conversation would succeed.
+          status: voiceWorker.isConfigured() ? 'configured' : 'not_configured',
+          transport: 'smallwebrtc',
+          stt: 'elevenlabs',
+          tts: 'elevenlabs',
+          vad: 'silero',
+        },
       },
-      // No pipeline runs yet, so there is nothing to measure and nothing is reported.
+      // Turn metrics come from a session's own events, not from this endpoint.
       metrics: null,
     });
   });
@@ -114,12 +126,15 @@ export function createApp(deps: AppDependencies): Express {
    * an implementation and its tests land, never in anticipation of one.
    */
   app.get('/api/services', (_req, res) => {
+    // Only what this deployment can actually run. The voice stack appears only
+    // when a worker is configured behind it.
+    const voiceAvailable = voiceWorker.isConfigured();
     res.json({
       llm: supportedModels(env).map((m) => ({ ...m, provider: 'google-gemini' })),
-      stt: [],
-      tts: [],
-      vad: [],
-      transports: [],
+      stt: voiceAvailable ? [{ id: 'elevenlabs', name: 'ElevenLabs realtime' }] : [],
+      tts: voiceAvailable ? [{ id: 'elevenlabs', name: 'ElevenLabs streaming' }] : [],
+      vad: voiceAvailable ? [{ id: 'silero', name: 'Silero VAD' }] : [],
+      transports: voiceAvailable ? [{ id: 'smallwebrtc', name: 'SmallWebRTC' }] : [],
     });
   });
 
@@ -283,17 +298,42 @@ export function createApp(deps: AppDependencies): Express {
     })
   );
 
+  app.use(
+    '/api/voice',
+    createVoiceRouter({
+      worker: voiceWorker,
+      sessions: voiceSessions,
+      auth,
+      rateLimit: useRateLimit ? sessionLimiter.middleware : undefined,
+    })
+  );
+
   // --- Error handling ------------------------------------------------------
 
   app.use('/api', (_req, res) => {
     res.status(404).json(new AppError('INVALID_REQUEST', 'No such endpoint.').toBody());
   });
 
+  /**
+   * Body-parser rejections are the client's fault, not the server's, so they
+   * are typed rather than falling through to a 500.
+   */
+  function fromBodyParser(err: unknown): AppError | null {
+    const type = (err as { type?: string })?.type;
+    if (type === 'entity.too.large') {
+      return new AppError('PAYLOAD_TOO_LARGE', 'The request body is too large.');
+    }
+    if (type === 'entity.parse.failed' || type === 'encoding.unsupported') {
+      return new AppError('INVALID_REQUEST', 'The request body could not be parsed.');
+    }
+    return null;
+  }
+
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     const appError =
       err instanceof AppError
         ? err
-        : new AppError('INTERNAL_ERROR', 'An unexpected error occurred.');
+        : fromBodyParser(err) ?? new AppError('INTERNAL_ERROR', 'An unexpected error occurred.');
 
     // Structured, and free of credentials, tokens and user content.
     console.error(
@@ -307,7 +347,7 @@ export function createApp(deps: AppDependencies): Express {
         userId: req.user?.uid,
       })
     );
-    if (!(err instanceof AppError)) {
+    if (!(err instanceof AppError) && appError.code === 'INTERNAL_ERROR') {
       console.error(err);
     }
 

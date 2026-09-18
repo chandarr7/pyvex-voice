@@ -125,16 +125,26 @@ describe('provider failure is never disguised as success', () => {
 });
 
 describe('no fabricated telemetry or transport', () => {
-  it('reports voice components as not implemented rather than healthy', async () => {
+  it('reports the voice stack as unconfigured when no worker is behind it', async () => {
     const { app } = buildApp();
     const res = await request(app).get('/api/status');
 
     expect(res.status).toBe(200);
-    expect(res.body.components.stt.status).toBe('not_implemented');
-    expect(res.body.components.tts.status).toBe('not_implemented');
-    expect(res.body.components.transport.status).toBe('not_implemented');
+    // Configuration is all this process can honestly report; whether a call
+    // would succeed is the worker's own readiness to answer.
+    expect(res.body.components.voice.status).toBe('not_configured');
     expect(res.body.metrics).toBeNull();
     expect(JSON.stringify(res.body)).not.toContain('framesProcessed');
+  });
+
+  it('advertises no voice provider until a worker is configured', async () => {
+    const { app } = buildApp();
+    const res = await request(app).get('/api/services');
+
+    expect(res.body.stt).toEqual([]);
+    expect(res.body.tts).toEqual([]);
+    expect(res.body.vad).toEqual([]);
+    expect(res.body.transports).toEqual([]);
   });
 
   it('names the auth provider it actually uses', async () => {
@@ -149,11 +159,10 @@ describe('no fabricated telemetry or transport', () => {
     const { app } = buildApp();
     const res = await request(app).get('/api/services');
 
-    expect(res.body.stt).toEqual([]);
-    expect(res.body.tts).toEqual([]);
-    expect(res.body.transports).toEqual([]);
     const body = JSON.stringify(res.body);
-    for (const absent of ['Deepgram', 'Cartesia', 'AssemblyAI', 'Whisper', 'Silero', 'Daily', 'ElevenLabs']) {
+    // Providers this deployment has never implemented stay absent whatever the
+    // voice worker's state.
+    for (const absent of ['Deepgram', 'Cartesia', 'AssemblyAI', 'Whisper', 'Daily', 'Twilio']) {
       expect(body).not.toContain(absent);
     }
   });
