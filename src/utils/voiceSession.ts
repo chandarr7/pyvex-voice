@@ -1,341 +1,308 @@
 /**
- * The state machine behind the live conversation UI.
+ * The live conversation, over a real WebRTC connection to the voice worker.
  *
- * Each state is entered only once the step it names has actually succeeded:
- * CONNECTED follows a session the server created, LISTENING follows a running
- * recogniser, SPEAKING follows the synthesiser's start event. The UI renders
- * this value directly, so a label cannot claim a capability that failed.
+ * Speech recognition and synthesis both happen in the worker. The browser
+ * captures a microphone track, plays the returned audio track, and reports the
+ * state the peer connection is actually in.
+ *
+ * Every state here is entered only after the step it names succeeded, so a
+ * label can never claim a capability that failed. The event timeline comes
+ * from the worker's own frames rather than being synthesised here.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { ApiError, api, describeApiError, type ChatTurnResult } from '../lib/api';
-import { isSpeechSynthesisSupported, speak, stopSpeaking, SpeechError } from './audioEngine';
-import { useMicrophone } from './microphone';
-import { isSpeechRecognitionSupported, useSpeechRecognition } from './speechRecognition';
+import { ApiError, api, describeApiError, type VoiceEvent } from '../lib/api';
+import { MicrophoneDeniedError, VoiceConnection, type PeerState } from './webrtcConnection';
 
 export type VoiceSessionState =
   | 'IDLE'
   | 'REQUESTING_MIC'
   | 'STARTING_SESSION'
+  | 'NEGOTIATING'
   | 'CONNECTED'
-  | 'LISTENING'
-  | 'THINKING'
   | 'SPEAKING'
+  | 'LISTENING'
   | 'ERROR'
   | 'DISCONNECTED';
 
-export interface TranscriptEntry {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
-  /** Measured provider latency for an assistant turn. Absent when unmeasured. */
-  llmLatencyMs?: number;
-}
-
 export interface VoiceSessionLogEntry {
   id: string;
-  /** Describes what this application did. Not a framework event name. */
   event: string;
   detail: string;
   level: 'info' | 'success' | 'warning' | 'error';
   timestamp: number;
 }
 
-export interface VoiceSessionCapabilities {
-  microphone: boolean;
-  speechRecognition: boolean;
-  speechSynthesis: boolean;
+/** Measured turn timings. A value is absent until something measured it. */
+export interface TurnMetrics {
+  llmDurationMs?: number;
+  ttsDurationMs?: number;
+  bargeInLatencyMs?: number;
 }
 
 export interface VoiceSessionController {
   state: VoiceSessionState;
-  capabilities: VoiceSessionCapabilities;
-  transcript: TranscriptEntry[];
-  log: VoiceSessionLogEntry[];
-  interimTranscript: string;
-  micLevel: number;
-  errorMessage: string | null;
   sessionId: string | null;
-  connect: (flow: string, model?: string) => Promise<void>;
+  errorMessage: string | null;
+  log: VoiceSessionLogEntry[];
+  metrics: TurnMetrics;
+  /** The worker's audio, for a media element to play. */
+  remoteStream: MediaStream | null;
+  connect: (personaId: string, voiceProfileId?: string) => Promise<void>;
   disconnect: () => Promise<void>;
-  startListening: () => Promise<void>;
-  stopListening: () => void;
-  sendText: (text: string) => Promise<void>;
-  interrupt: () => void;
   clearLog: () => void;
 }
 
 let sequence = 0;
-const nextId = (prefix: string) => `${prefix}_${Date.now()}_${(sequence += 1)}`;
+const nextId = () => `log_${Date.now()}_${(sequence += 1)}`;
+
+/** How a worker event reads in the log, and how severe it is. */
+const EVENT_PRESENTATION: Record<string, { detail: string; level: VoiceSessionLogEntry['level'] }> = {
+  'session.created': { detail: 'Session created', level: 'info' },
+  'transport.connecting': { detail: 'Establishing media connection', level: 'info' },
+  'transport.connected': { detail: 'Media connection established', level: 'success' },
+  'transport.disconnected': { detail: 'Media connection closed', level: 'info' },
+  'transport.failed': { detail: 'Media connection failed', level: 'error' },
+  'user.speech.started': { detail: 'Speech detected', level: 'info' },
+  'user.speech.stopped': { detail: 'Speech ended', level: 'info' },
+  'stt.final': { detail: 'Transcript received', level: 'success' },
+  'llm.started': { detail: 'Model generating', level: 'info' },
+  'llm.completed': { detail: 'Model responded', level: 'success' },
+  'tts.started': { detail: 'Speaking', level: 'info' },
+  'tts.first_audio': { detail: 'First audio', level: 'info' },
+  'tts.completed': { detail: 'Finished speaking', level: 'info' },
+  'interruption.started': { detail: 'Interrupted by caller', level: 'warning' },
+  'session.completed': { detail: 'Session ended', level: 'info' },
+  'session.failed': { detail: 'Session failed', level: 'error' },
+};
+
+/** How long between polls for worker events while a call is live. */
+const EVENT_POLL_MS = 1_000;
 
 export function useVoiceSession(): VoiceSessionController {
   const [state, setState] = useState<VoiceSessionState>('IDLE');
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [log, setLog] = useState<VoiceSessionLogEntry[]>([]);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [log, setLog] = useState<VoiceSessionLogEntry[]>([]);
+  const [metrics, setMetrics] = useState<TurnMetrics>({});
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
+  const connectionRef = useRef<VoiceConnection | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  // Read the live state from event callbacks without re-creating them.
-  const stateRef = useRef<VoiceSessionState>(state);
-  const turnAbortRef = useRef<AbortController | null>(null);
-  const wantsListeningRef = useRef(false);
-
-  const capabilities: VoiceSessionCapabilities = {
-    microphone: typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia),
-    speechRecognition: isSpeechRecognitionSupported(),
-    speechSynthesis: isSpeechSynthesisSupported(),
-  };
-
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastEventMsRef = useRef(0);
 
   const addLog = useCallback(
     (event: string, detail: string, level: VoiceSessionLogEntry['level'] = 'info') => {
-      setLog((prev) => [
-        ...prev.slice(-199),
-        { id: nextId('log'), event, detail, level, timestamp: Date.now() },
-      ]);
+      setLog((prev) => [...prev.slice(-199), { id: nextId(), event, detail, level, timestamp: Date.now() }]);
     },
     []
   );
 
   const clearLog = useCallback(() => setLog([]), []);
 
-  /** Cancel in-flight generation and stop playback. */
-  const interrupt = useCallback(() => {
-    turnAbortRef.current?.abort();
-    turnAbortRef.current = null;
-    stopSpeaking();
-    addLog('conversation.interrupted', 'Playback stopped and pending reply cancelled', 'warning');
-    setState((prev) => (prev === 'SPEAKING' || prev === 'THINKING' ? 'CONNECTED' : prev));
-  }, [addLog]);
+  /** Fold one worker event into the log, the metrics and the speaking state. */
+  const applyEvent = useCallback((event: VoiceEvent) => {
+    const presentation = EVENT_PRESENTATION[event.event];
+    setLog((prev) => [
+      ...prev.slice(-199),
+      {
+        id: nextId(),
+        event: event.event,
+        detail: presentation?.detail ?? event.event,
+        level: presentation?.level ?? 'info',
+        timestamp: event.atMs,
+      },
+    ]);
 
-  const speakReply = useCallback(
-    async (text: string) => {
-      if (!capabilities.speechSynthesis) {
-        addLog('tts.unavailable', 'Browser speech synthesis is not available', 'warning');
-        setState('CONNECTED');
-        return;
+    // Only measured values reach the UI; an absent one stays absent.
+    setMetrics((prev) => {
+      const next = { ...prev };
+      if (event.event === 'llm.completed' && typeof event.durationMs === 'number') {
+        next.llmDurationMs = event.durationMs;
       }
-      try {
-        addLog('tts.browser.requested', 'Requesting browser speech synthesis');
-        await speak(text, { onStart: () => setState('SPEAKING') });
-        addLog('tts.browser.completed', 'Finished speaking');
-      } catch (err) {
-        const reason = err instanceof SpeechError ? err.reason : 'synthesis-failed';
-        addLog('tts.browser.failed', `Speech synthesis failed (${reason})`, 'error');
-        setErrorMessage(
-          reason === 'autoplay-blocked'
-            ? 'Your browser blocked audio. Interact with the page, then try again.'
-            : 'Could not play the reply aloud.'
-        );
-      } finally {
-        setState((prev) => (prev === 'SPEAKING' ? 'CONNECTED' : prev));
+      if (event.event === 'tts.completed') {
+        if (typeof event.durationMs === 'number') next.ttsDurationMs = event.durationMs;
+        if (typeof event.bargeInLatencyMs === 'number') {
+          next.bargeInLatencyMs = event.bargeInLatencyMs;
+        }
       }
+      return next;
+    });
+
+    setState((prev) => {
+      // Never overwrite a terminal state with a late-arriving event.
+      if (prev === 'ERROR' || prev === 'DISCONNECTED' || prev === 'IDLE') return prev;
+      if (event.event === 'tts.started') return 'SPEAKING';
+      if (event.event === 'tts.completed' || event.event === 'interruption.started') return 'LISTENING';
+      if (event.event === 'user.speech.started') return 'LISTENING';
+      if (event.event === 'session.failed') return 'ERROR';
+      return prev;
+    });
+
+    if (event.event === 'session.failed') {
+      setErrorMessage('The conversation ended unexpectedly.');
+    }
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+  }, []);
+
+  const startPolling = useCallback(
+    (id: string) => {
+      stopPolling();
+      pollRef.current = setInterval(async () => {
+        try {
+          const { events } = await api.voiceEvents(id, lastEventMsRef.current);
+          for (const event of events) {
+            lastEventMsRef.current = Math.max(lastEventMsRef.current, event.atMs);
+            applyEvent(event);
+          }
+        } catch {
+          // A dropped poll loses nothing: the next one asks from the same
+          // watermark, so no event is skipped.
+        }
+      }, EVENT_POLL_MS);
     },
-    [addLog, capabilities.speechSynthesis]
+    [applyEvent, stopPolling]
   );
 
-  const submitTurn = useCallback(
-    async (text: string) => {
-      const activeSession = sessionIdRef.current;
-      if (!activeSession) return;
+  /**
+   * Release everything this session holds, without deciding what state to
+   * report. The caller owns that, so a failure's own state is not overwritten
+   * by the cleanup that follows it.
+   */
+  const teardown = useCallback(async () => {
+    stopPolling();
+    const connection = connectionRef.current;
+    connectionRef.current = null;
+    await connection?.close();
+    setRemoteStream(null);
 
-      const trimmed = text.trim();
-      if (!trimmed) return;
-
-      turnAbortRef.current?.abort();
-      const controller = new AbortController();
-      turnAbortRef.current = controller;
-
-      setTranscript((prev) => [
-        ...prev,
-        { id: nextId('turn'), role: 'user', content: trimmed, timestamp: Date.now() },
-      ]);
-      setState('THINKING');
-      setErrorMessage(null);
-      addLog('llm.request.started', `Sent "${trimmed.slice(0, 60)}"`);
-
-      let result: ChatTurnResult;
-      try {
-        result = await api.sendSessionTurn(activeSession, trimmed, controller.signal);
-      } catch (err) {
-        if ((err as { name?: string })?.name === 'AbortError') return;
-
-        // The assistant produced nothing, so nothing is added to the
-        // transcript and nothing is spoken.
-        const message = describeApiError(err);
-        const code = err instanceof ApiError ? err.code : 'UNKNOWN';
-        addLog('llm.request.failed', `${code}: ${message}`, 'error');
-        setErrorMessage(message);
-        setState(code === 'SESSION_EXPIRED' || code === 'SESSION_NOT_FOUND' ? 'DISCONNECTED' : 'ERROR');
-        return;
-      } finally {
-        if (turnAbortRef.current === controller) turnAbortRef.current = null;
-      }
-
-      addLog('llm.request.completed', `Reply in ${result.metrics.llmLatencyMs}ms via ${result.model}`, 'success');
-      setTranscript((prev) => [
-        ...prev,
-        {
-          id: nextId('turn'),
-          role: 'assistant',
-          content: result.reply,
-          timestamp: Date.now(),
-          llmLatencyMs: result.metrics.llmLatencyMs,
-        },
-      ]);
-      await speakReply(result.reply);
-    },
-    [addLog, speakReply]
-  );
-
-  const handleFinalTranscript = useCallback(
-    (finalText: string) => {
-      addLog('stt.browser.final_transcript', `Transcribed "${finalText.slice(0, 60)}"`, 'success');
-      void submitTurn(finalText);
-    },
-    [addLog, submitTurn]
-  );
-
-  const recognition = useSpeechRecognition({
-    onFinalTranscript: handleFinalTranscript,
-    onError: (error) => {
-      addLog('stt.browser.error', `Speech recognition error: ${error}`, 'error');
-      if (error === 'not-allowed' || error === 'service-not-allowed') {
-        setErrorMessage('Microphone access was blocked for speech recognition.');
-        setState('ERROR');
-      }
-    },
-  });
-
-  // Barge-in: any input while the assistant is speaking stops playback.
-  const microphone = useMicrophone({
-    onInputDetected: () => {
-      if (stateRef.current === 'SPEAKING') interrupt();
-    },
-  });
-
-  const connect = useCallback(
-    async (flow: string, model?: string) => {
-      setState('STARTING_SESSION');
-      setErrorMessage(null);
-      addLog('session.start.requested', `Starting "${flow}"`);
-      try {
-        const result = await api.startSession({ flow, model });
-        sessionIdRef.current = result.session.id;
-        setSessionId(result.session.id);
-        setTranscript([
-          { id: nextId('turn'), role: 'assistant', content: result.greeting, timestamp: Date.now() },
-        ]);
-        setState('CONNECTED');
-        addLog('session.start.succeeded', `Session ${result.session.id} ready`, 'success');
-        await speakReply(result.greeting);
-      } catch (err) {
-        const message = describeApiError(err);
-        addLog('session.start.failed', message, 'error');
-        setErrorMessage(message);
-        setState('ERROR');
-      }
-    },
-    [addLog, speakReply]
-  );
-
-  const disconnect = useCallback(async () => {
-    wantsListeningRef.current = false;
-    turnAbortRef.current?.abort();
-    turnAbortRef.current = null;
-    recognition.stop();
-    microphone.stop();
-    stopSpeaking();
-
-    const activeSession = sessionIdRef.current;
+    const id = sessionIdRef.current;
     sessionIdRef.current = null;
     setSessionId(null);
-    setState('DISCONNECTED');
 
-    if (activeSession) {
+    if (id) {
       try {
-        await api.stopSession(activeSession);
-        addLog('session.stopped', 'Session closed');
+        await api.stopVoiceSession(id);
+        addLog('session.stopped', 'Session closed', 'info');
       } catch {
         // The session expires on its own; a failed stop changes nothing here.
-        addLog('session.stop.failed', 'Could not confirm session close', 'warning');
       }
     }
-  }, [addLog, microphone, recognition]);
+  }, [addLog, stopPolling]);
 
-  const startListening = useCallback(async () => {
-    if (!sessionIdRef.current) return;
-    if (!capabilities.speechRecognition) {
-      setErrorMessage(
-        'Speech recognition is not available in this browser. Chrome or Edge supports it; you can also type below.'
-      );
-      addLog('stt.unsupported', 'Browser has no speech recognition', 'warning');
-      setState('ERROR');
-      return;
-    }
+  const disconnect = useCallback(async () => {
+    await teardown();
+    setState('DISCONNECTED');
+  }, [teardown]);
 
-    setState('REQUESTING_MIC');
-    const granted = await microphone.start();
-    if (!granted) {
-      const reason = microphone.error;
-      setErrorMessage(
-        reason === 'denied'
-          ? 'Microphone access was denied. Allow it in your browser, then try again.'
-          : 'No microphone is available.'
-      );
-      addLog('microphone.failed', `Microphone unavailable (${reason ?? 'unknown'})`, 'error');
-      setState('ERROR');
-      return;
-    }
+  const handlePeerState = useCallback(
+    (peerState: PeerState, detail?: string) => {
+      switch (peerState) {
+        case 'acquiring-microphone':
+          setState('REQUESTING_MIC');
+          addLog('microphone.requested', 'Requesting microphone');
+          break;
+        case 'negotiating':
+          setState('NEGOTIATING');
+          addLog('transport.negotiating', 'Negotiating media connection');
+          break;
+        case 'connected':
+          // The one place CONNECTED is set, and only from the peer
+          // connection's own state.
+          setState('CONNECTED');
+          addLog('transport.connected', 'Media connection established', 'success');
+          break;
+        case 'disconnected':
+          addLog('transport.disconnected', 'Media connection interrupted', 'warning');
+          break;
+        case 'failed':
+          setState('ERROR');
+          addLog('transport.failed', `Connection failed (${detail ?? 'unknown'})`, 'error');
+          break;
+        case 'closed':
+          stopPolling();
+          break;
+        default:
+          break;
+      }
+    },
+    [addLog, stopPolling]
+  );
 
-    addLog('microphone.started', 'Microphone capture active', 'success');
-    wantsListeningRef.current = true;
-    recognition.start();
-  }, [addLog, capabilities.speechRecognition, microphone, recognition]);
+  const connect = useCallback(
+    async (personaId: string, voiceProfileId?: string) => {
+      setErrorMessage(null);
+      setMetrics({});
+      lastEventMsRef.current = 0;
+      setState('STARTING_SESSION');
+      addLog('session.requested', `Starting "${personaId}"`);
 
-  const stopListening = useCallback(() => {
-    wantsListeningRef.current = false;
-    recognition.stop();
-    microphone.stop();
-    addLog('microphone.stopped', 'Microphone capture stopped');
-    setState((prev) => (prev === 'LISTENING' ? 'CONNECTED' : prev));
-  }, [addLog, microphone, recognition]);
+      let created;
+      try {
+        created = await api.startVoiceSession({ personaId, voiceProfileId });
+      } catch (err) {
+        const message = describeApiError(err);
+        addLog('session.failed', message, 'error');
+        setErrorMessage(message);
+        setState('ERROR');
+        return;
+      }
 
-  // LISTENING is entered only once the recogniser reports it is running.
-  useEffect(() => {
-    if (recognition.listening && wantsListeningRef.current) {
-      setState((prev) => (prev === 'REQUESTING_MIC' || prev === 'CONNECTED' ? 'LISTENING' : prev));
-    }
-  }, [recognition.listening]);
+      const id = created.session.id;
+      sessionIdRef.current = id;
+      setSessionId(id);
+
+      const connection = new VoiceConnection(id, {
+        onStateChange: handlePeerState,
+        onRemoteStream: setRemoteStream,
+        onError: (message) => setErrorMessage(message),
+      });
+      connectionRef.current = connection;
+
+      try {
+        await connection.connect();
+      } catch (err) {
+        const message =
+          err instanceof MicrophoneDeniedError
+            ? 'Microphone access was denied. Allow it in your browser, then try again.'
+            : err instanceof ApiError
+              ? describeApiError(err)
+              : (err as Error).message;
+        setErrorMessage(message);
+        setState('ERROR');
+        // Released without resetting the state: the caller needs to see why
+        // the call failed, not that it ended.
+        void teardown();
+        return;
+      }
+
+      startPolling(id);
+    },
+    [addLog, handlePeerState, startPolling, teardown]
+  );
 
   useEffect(
     () => () => {
-      turnAbortRef.current?.abort();
-      stopSpeaking();
+      stopPolling();
+      void connectionRef.current?.close();
     },
-    []
+    [stopPolling]
   );
 
   return {
     state,
-    capabilities,
-    transcript,
-    log,
-    interimTranscript: recognition.interimTranscript,
-    micLevel: microphone.level,
-    errorMessage,
     sessionId,
+    errorMessage,
+    log,
+    metrics,
+    remoteStream,
     connect,
     disconnect,
-    startListening,
-    stopListening,
-    sendText: submitTurn,
-    interrupt,
     clearLog,
   };
 }

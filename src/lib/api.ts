@@ -22,6 +22,12 @@ export type ApiErrorCode =
   | 'LLM_AUTH_ERROR'
   | 'LLM_RATE_LIMITED'
   | 'LLM_NOT_CONFIGURED'
+  | 'PAYLOAD_TOO_LARGE'
+  | 'VOICE_WORKER_NOT_CONFIGURED'
+  | 'VOICE_WORKER_UNAVAILABLE'
+  | 'VOICE_WORKER_TIMEOUT'
+  | 'VOICE_NEGOTIATION_FAILED'
+  | 'VOICE_NOT_FOUND'
   | 'INTERNAL_ERROR'
   | 'NETWORK_ERROR';
 
@@ -52,6 +58,11 @@ const USER_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   LLM_ERROR: "I can't reach the assistant right now.",
   NETWORK_ERROR: 'Network unavailable. Check your connection.',
   INVALID_MODEL: 'That model is not available.',
+  VOICE_WORKER_NOT_CONFIGURED: 'Live voice is not available on this deployment.',
+  VOICE_WORKER_UNAVAILABLE: 'The voice service is unreachable right now.',
+  VOICE_WORKER_TIMEOUT: "The voice service didn't respond in time.",
+  VOICE_NEGOTIATION_FAILED: 'Could not establish the voice connection.',
+  PAYLOAD_TOO_LARGE: 'That request was too large.',
 };
 
 export function describeApiError(error: unknown): string {
@@ -174,6 +185,43 @@ export interface StatelessChatResult {
   metrics: { llmLatencyMs: number };
 }
 
+export interface VoiceSessionSummary {
+  id: string;
+  personaId: string;
+  voiceProfileId?: string;
+  pcId?: string;
+  status: 'created' | 'negotiated' | 'connected' | 'failed' | 'ended';
+  failureCode?: string;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+}
+
+export interface StartVoiceSessionResult {
+  session: VoiceSessionSummary;
+  persona: { id: string; name: string; greeting: string };
+}
+
+export interface VoiceAnswer {
+  answer: { sdp: string; type: string; pc_id?: string };
+  sessionId: string;
+}
+
+/** One event the worker recorded. Always something that happened. */
+export interface VoiceEvent {
+  event: string;
+  sessionId: string;
+  atMs: number;
+  [key: string]: unknown;
+}
+
+export interface VoiceReadiness {
+  status: 'ready' | 'not_ready' | 'unreachable';
+  providers?: Record<string, string>;
+  voiceProfiles?: string[];
+  reason?: string;
+}
+
 // --- Endpoints -------------------------------------------------------------
 
 export const api = {
@@ -194,6 +242,40 @@ export const api = {
       body: { message },
       signal,
     }),
+
+  voiceReadiness: () => apiRequest<VoiceReadiness>('/api/voice/readiness'),
+
+  startVoiceSession: (body: { personaId: string; voiceProfileId?: string }, signal?: AbortSignal) =>
+    apiRequest<StartVoiceSessionResult>('/api/voice/sessions', { method: 'POST', body, signal }),
+
+  sendVoiceOffer: (
+    sessionId: string,
+    offer: { sdp: string; type: string },
+    signal?: AbortSignal
+  ) =>
+    apiRequest<VoiceAnswer>(`/api/voice/sessions/${sessionId}/offer`, {
+      method: 'POST',
+      body: offer,
+      signal,
+    }),
+
+  sendIceCandidates: (
+    sessionId: string,
+    candidates: Array<{ candidate: string; sdpMid: string; sdpMLineIndex: number }>
+  ) =>
+    apiRequest<{ accepted: number }>(`/api/voice/sessions/${sessionId}/ice`, {
+      method: 'PATCH',
+      body: { candidates },
+    }),
+
+  voiceEvents: (sessionId: string, afterMs: number, signal?: AbortSignal) =>
+    apiRequest<{ sessionId: string; events: VoiceEvent[] }>(
+      `/api/voice/sessions/${sessionId}/events?afterMs=${afterMs}`,
+      { signal }
+    ),
+
+  stopVoiceSession: (sessionId: string) =>
+    apiRequest<{ stopped: boolean }>(`/api/voice/sessions/${sessionId}/stop`, { method: 'POST' }),
 
   chat: (
     body: { turns: ConversationTurn[]; model?: string; flow?: string; systemInstruction?: string },

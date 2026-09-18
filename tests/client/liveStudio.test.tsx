@@ -1,11 +1,12 @@
 /**
- * The panel must never present a capability it does not have.
+ * The panel must never present a connection it does not have.
  *
- * The defect these cover: the studio used to show "Listening" in any browser,
- * including those with no speech recognition at all.
+ * Live Studio now runs over a real peer connection, so "Connected" may only
+ * appear once RTCPeerConnection reports it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 vi.mock('../../src/lib/supabase', () => ({
   supabase: null,
@@ -14,82 +15,209 @@ vi.mock('../../src/lib/supabase', () => ({
   handleDatabaseError: vi.fn(),
 }));
 
-vi.mock('../../src/context/AuthContext', () => ({
-  useAuth: () => ({ user: { uid: 'alice', email: 'alice@example.test' } }),
+const mockAuth = vi.hoisted(() => ({
+  user: { id: 'alice', email: 'alice@example.test' } as { id: string } | null,
 }));
+vi.mock('../../src/context/AuthContext', () => ({ useAuth: () => mockAuth }));
+
+// Hoisted: vi.mock factories run before module-level initialisers.
+const apiMock = vi.hoisted(() => ({
+  listFlows: vi.fn(),
+  voiceReadiness: vi.fn(),
+  startVoiceSession: vi.fn(),
+  sendVoiceOffer: vi.fn(),
+  sendIceCandidates: vi.fn(),
+  voiceEvents: vi.fn(),
+  stopVoiceSession: vi.fn(),
+}));
+vi.mock('../../src/lib/api', async () => {
+  const actual = await vi.importActual<typeof import('../../src/lib/api')>('../../src/lib/api');
+  return { ...actual, api: apiMock };
+});
 
 import { LiveStudioModal } from '../../src/components/LiveStudioModal';
 
-beforeEach(() => {
+const FLOW = {
+  id: 'customer_support',
+  name: 'Customer Support Intake',
+  description: 'Takes down a support issue.',
+  greeting: 'Hi there.',
+  suggestedPrompts: [],
+};
+
+/** A peer connection that never reaches `connected`. */
+function installPeerConnection(options: { finalState?: RTCPeerConnectionState } = {}) {
+  const instances: any[] = [];
+  const stoppedTracks: string[] = [];
+
+  vi.stubGlobal('navigator', {
+    mediaDevices: {
+      getUserMedia: vi.fn(async () => ({
+        getAudioTracks: () => [{ id: 'mic', stop: () => stoppedTracks.push('mic') }],
+        getTracks: () => [{ id: 'mic', stop: () => stoppedTracks.push('mic') }],
+      })),
+    },
+  });
+
   vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string) => {
-      if (String(input).includes('/api/flows')) {
-        return new Response(
-          JSON.stringify([
-            {
-              id: 'customer_support',
-              name: 'Customer Support Intake',
-              description: 'Takes down a support issue.',
-              greeting: 'Hi there.',
-              suggestedPrompts: [],
-            },
-          ]),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        );
+    'RTCPeerConnection',
+    class {
+      connectionState: RTCPeerConnectionState = 'new';
+      localDescription = { sdp: 'v=0\r\nlocal', type: 'offer' };
+      onconnectionstatechange: (() => void) | null = null;
+      ontrack: unknown = null;
+      onicecandidate: unknown = null;
+      constructor() {
+        instances.push(this);
       }
-      return new Response(
-        JSON.stringify({
-          models: [{ id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', description: '' }],
-          defaultModel: 'gemini-3.5-flash',
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      );
-    })
+      addTrack() {}
+      addTransceiver() {}
+      async createOffer() {
+        return { sdp: 'v=0\r\nlocal', type: 'offer' };
+      }
+      async setLocalDescription() {}
+      async setRemoteDescription() {
+        // Drive to the state under test once negotiation completes.
+        queueMicrotask(() => {
+          this.connectionState = options.finalState ?? 'failed';
+          this.onconnectionstatechange?.();
+        });
+      }
+      getSenders() {
+        return [];
+      }
+      close() {
+        this.connectionState = 'closed';
+      }
+    }
   );
+  vi.stubGlobal('MediaStream', class {});
+  return { instances, stoppedTracks };
+}
+
+beforeEach(() => {
+  mockAuth.user = { id: 'alice', email: 'alice@example.test' };
+  apiMock.listFlows.mockResolvedValue([FLOW]);
+  apiMock.voiceReadiness.mockResolvedValue({
+    status: 'ready',
+    providers: { gemini: 'configured' },
+    voiceProfiles: ['warm_professional'],
+  });
+  apiMock.startVoiceSession.mockResolvedValue({
+    session: { id: 'sess-1', personaId: 'customer_support', status: 'created' },
+    persona: { id: 'customer_support', name: 'Customer Support Intake', greeting: 'Hi there.' },
+  });
+  apiMock.sendVoiceOffer.mockResolvedValue({
+    answer: { sdp: 'v=0\r\nanswer', type: 'answer', pc_id: 'pc-1' },
+    sessionId: 'sess-1',
+  });
+  apiMock.voiceEvents.mockResolvedValue({ sessionId: 'sess-1', events: [] });
+  apiMock.stopVoiceSession.mockResolvedValue({ stopped: true });
+  apiMock.sendIceCandidates.mockResolvedValue({ accepted: 0 });
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
-describe('unsupported browser', () => {
-  beforeEach(() => {
-    vi.stubGlobal('SpeechRecognition', undefined);
-    vi.stubGlobal('webkitSpeechRecognition', undefined);
+describe('initial state', () => {
+  it('starts disconnected', async () => {
+    installPeerConnection();
+    render(<LiveStudioModal isOpen onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('session-state')).toHaveTextContent('Not connected'));
   });
 
-  it('never reports "Listening" and says why', async () => {
+  it('will not offer to start when the voice service is unavailable', async () => {
+    installPeerConnection();
+    apiMock.voiceReadiness.mockResolvedValue({
+      status: 'unreachable',
+      reason: 'No voice worker is configured.',
+    });
     render(<LiveStudioModal isOpen onClose={() => {}} />);
 
-    await waitFor(() => expect(screen.getByTestId('stt-unsupported-notice')).toBeInTheDocument());
-    expect(screen.getByTestId('session-state')).toHaveTextContent('Not connected');
-    expect(screen.queryByText('Listening')).not.toBeInTheDocument();
-    expect(screen.getByTestId('stt-unsupported-notice').textContent).toMatch(
-      /Speech recognition isn't available/i
+    await waitFor(() => expect(screen.getByTestId('voice-unavailable-notice')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /start conversation/i })).toBeDisabled();
+  });
+
+  it('reports unmeasured timings as N/A rather than inventing them', async () => {
+    installPeerConnection();
+    render(<LiveStudioModal isOpen onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('turn-metrics')).toBeInTheDocument());
+    expect(screen.getByTestId('turn-metrics').textContent).toContain('N/A');
+  });
+});
+
+describe('a connection that never establishes', () => {
+  it('never shows Connected, and says what failed', async () => {
+    installPeerConnection({ finalState: 'failed' });
+    render(<LiveStudioModal isOpen onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /start conversation/i })).toBeEnabled());
+
+    await userEvent.click(screen.getByRole('button', { name: /start conversation/i }));
+
+    await waitFor(() => expect(screen.getByTestId('session-state')).toHaveTextContent('Error'));
+    expect(screen.getByTestId('session-state')).not.toHaveTextContent('Connected');
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+
+  it('releases the microphone and tells the server the session is over', async () => {
+    const { stoppedTracks } = installPeerConnection({ finalState: 'failed' });
+    render(<LiveStudioModal isOpen onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /start conversation/i })).toBeEnabled());
+
+    await userEvent.click(screen.getByRole('button', { name: /start conversation/i }));
+
+    await waitFor(() => expect(stoppedTracks).toContain('mic'));
+    await waitFor(() => expect(apiMock.stopVoiceSession).toHaveBeenCalledWith('sess-1'));
+  });
+
+  it('does not poll for events after a failed connection', async () => {
+    installPeerConnection({ finalState: 'failed' });
+    render(<LiveStudioModal isOpen onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /start conversation/i })).toBeEnabled());
+
+    await userEvent.click(screen.getByRole('button', { name: /start conversation/i }));
+    await waitFor(() => expect(screen.getByTestId('session-state')).toHaveTextContent('Error'));
+
+    expect(apiMock.voiceEvents).not.toHaveBeenCalled();
+  });
+});
+
+describe('a connection that establishes', () => {
+  it('shows Connected only once the peer connection reports it', async () => {
+    installPeerConnection({ finalState: 'connected' });
+    render(<LiveStudioModal isOpen onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /start conversation/i })).toBeEnabled());
+
+    await userEvent.click(screen.getByRole('button', { name: /start conversation/i }));
+
+    await waitFor(() => expect(screen.getByTestId('session-state')).toHaveTextContent('Connected'));
+    // A real offer was sent and answered, not a fabricated one.
+    expect(apiMock.sendVoiceOffer).toHaveBeenCalledWith(
+      'sess-1',
+      expect.objectContaining({ type: 'offer' }),
+      expect.anything()
     );
   });
 
-  it('disables the microphone control rather than letting it silently do nothing', async () => {
+  it('attaches an audio element for the worker to play through', async () => {
+    installPeerConnection({ finalState: 'connected' });
     render(<LiveStudioModal isOpen onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId('stt-unsupported-notice')).toBeInTheDocument());
-
-    // The control only exists once connected; before that the start button is
-    // the only affordance, so no microphone promise is made at all.
-    expect(screen.queryByRole('button', { name: /use microphone/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /start conversation/i })).toBeInTheDocument();
+    expect(screen.getByTestId('remote-audio')).toBeInTheDocument();
   });
 });
 
-describe('state labels', () => {
-  it('starts disconnected regardless of browser capability', async () => {
-    vi.stubGlobal('webkitSpeechRecognition', class {});
+describe('session creation failure', () => {
+  it('surfaces the error rather than proceeding to negotiate', async () => {
+    installPeerConnection({ finalState: 'connected' });
+    apiMock.startVoiceSession.mockRejectedValue(new Error('nope'));
     render(<LiveStudioModal isOpen onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /start conversation/i })).toBeEnabled());
 
-    await waitFor(() => expect(screen.getByTestId('session-state')).toBeInTheDocument());
-    expect(screen.getByTestId('session-state')).toHaveTextContent('Not connected');
-    // "Connected" is only ever shown after the server created a session.
-    expect(screen.getByTestId('session-state')).not.toHaveTextContent('Connected');
+    await userEvent.click(screen.getByRole('button', { name: /start conversation/i }));
+
+    await waitFor(() => expect(screen.getByTestId('session-state')).toHaveTextContent('Error'));
+    expect(apiMock.sendVoiceOffer).not.toHaveBeenCalled();
   });
 });
