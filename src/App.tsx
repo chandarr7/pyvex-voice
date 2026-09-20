@@ -43,7 +43,9 @@ export function AppContent() {
 
   // Map selected hero persona to matching Gemini agent role
   const geminiRoleFromPersona =
-    activePersonaId === 'healthcare-triage'
+    activePersonaId === 'enterprise-sdr'
+      ? 'tilted_sales_agent'
+      : activePersonaId === 'healthcare-triage'
       ? 'clinical_intake'
       : activePersonaId === 'fintech-wealth'
       ? 'wealth_fraud'
@@ -51,7 +53,7 @@ export function AppContent() {
       ? 'luxury_real_estate'
       : activePersonaId === 'logistics-dispatch'
       ? 'fleet_dispatcher'
-      : 'white_glove_support';
+      : 'tilted_sales_agent';
 
   return (
     <div className="min-h-screen flex flex-col bg-[#08090B] text-[#F4F2F8] selection:bg-[#7047FF]/30 selection:text-[#F4F2F8] antialiased">

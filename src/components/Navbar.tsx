@@ -26,7 +26,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
           </div>
           <div className="flex items-center gap-1.5 font-sans">
             <span className="text-lg font-bold tracking-tight text-[#F4F2F8]">
-              Pyvex
+              Tilted
             </span>
             <span className="text-lg font-bold tracking-tight text-[#845CFF]">
               STUDIO
@@ -53,7 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
             className="hover:text-[#F4F2F8] transition-colors flex items-center gap-1.5 text-[#D8B4FE]"
           >
             <Sparkles className="w-3 h-3 text-[#24D8ED]" />
-            <span>Gemini Agent</span>
+            <span>Tilted Sales Agent</span>
           </a>
           <a
             href="#architecture"
@@ -100,7 +100,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
                 <span className="max-w-[100px] truncate text-[11px] text-[#F4F2F8]">
                   {user.displayName || user.email?.split('@')[0]}
                 </span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Firestore Connected" />
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${user.isDemo ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                  title={user.isDemo ? 'Demo Mode (Local DB)' : 'Firestore Connected'}
+                />
               </div>
             ) : (
               <div className="flex items-center gap-1.5 text-[#A4A3B2] hover:text-[#F4F2F8]">
@@ -156,7 +159,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
             className="flex items-center gap-2 py-2 text-[#D8B4FE] hover:text-[#F4F2F8]"
           >
             <Sparkles className="w-3.5 h-3.5 text-[#24D8ED]" />
-            <span>Gemini Agent (Multi-turn Chat)</span>
+            <span>Tilted Sales Agent</span>
           </a>
           <a
             href="#architecture"

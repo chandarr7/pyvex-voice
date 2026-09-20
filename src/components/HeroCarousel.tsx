@@ -1,22 +1,19 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  ChevronLeft,
-  ChevronRight,
   Play,
   Square,
-  Key,
-  Eye,
-  EyeOff,
   Sparkles,
   ArrowRight,
   Volume2,
-  Mic,
-  Activity,
-  Headphones,
+  Sliders,
+  Radio,
 } from 'lucide-react';
 import { Persona, PYVEX_PERSONAS } from '../data/personas';
 import { playVoiceAudio, stopVoiceAudio } from '../utils/audioEngine';
 import { DynamicAudioVisualizer } from './DynamicAudioVisualizer';
+import { ConversationTestSimulator, VoiceTestDraftConfig } from './ConversationTestSimulator';
+import { VoiceSettingsPanel } from './VoiceSettingsPanel';
+import { PersonaVoiceTuning } from '../types';
 
 interface HeroCarouselProps {
   onOpenStudio: () => void;
@@ -29,13 +26,34 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
   onBookDemo,
   onSelectPersona,
 }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  // Default to 'male' as per segmented control spec: (Male selected in --purple-primary, Female muted)
-  const [selectedGender, setSelectedGender] = useState<'male' | 'female'>('male');
-  const [apiKey, setApiKey] = useState('');
-  const [showApiKey, setShowApiKey] = useState(false);
+  const [currentIndex] = useState(0);
+  const [selectedGender, setSelectedGender] = useState<'male' | 'female'>('female');
   const [isPlaying, setIsPlaying] = useState(false);
   const [isTestAgentActive, setIsTestAgentActive] = useState(false);
+  const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  const [isVoiceTuningOpen, setIsVoiceTuningOpen] = useState(false);
+  const [, setActiveDraft] = useState<VoiceTestDraftConfig | null>(null);
+
+  const activePersona: Persona = PYVEX_PERSONAS[currentIndex];
+  const nextPersona: Persona = PYVEX_PERSONAS[(currentIndex + 1) % PYVEX_PERSONAS.length];
+  const activeVoice = activePersona.voices[selectedGender];
+
+  const [voiceTuning, setVoiceTuning] = useState<PersonaVoiceTuning>({
+    pitch: activeVoice.pitch || 1.0,
+    speed: activeVoice.rate || 1.0,
+    accent: 'neutral',
+    voiceId: activeVoice.elevenLabsId,
+    gender: selectedGender,
+  });
+
+  // Synchronize voice tuning if active voice changes
+  useEffect(() => {
+    setVoiceTuning((prev) => ({
+      ...prev,
+      voiceId: prev.voiceId || activeVoice.elevenLabsId,
+      gender: selectedGender,
+    }));
+  }, [activeVoice.elevenLabsId, selectedGender]);
 
   // Parallax and 3D tilt tracking for stacked cards deck
   const deckRef = useRef<HTMLDivElement>(null);
@@ -88,63 +106,34 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
     });
   };
 
-  const activePersona: Persona = PYVEX_PERSONAS[currentIndex];
-  const nextPersona: Persona = PYVEX_PERSONAS[(currentIndex + 1) % PYVEX_PERSONAS.length];
-  const activeVoice = activePersona.voices[selectedGender];
-
-  const handleNext = useCallback(() => {
+  const handleToggleVoicePlay = () => {
     stopVoiceAudio();
     setIsPlaying(false);
     setIsTestAgentActive(false);
-    setCurrentIndex((prev) => (prev + 1) % PYVEX_PERSONAS.length);
-  }, []);
+    setIsSimulatorOpen(true);
+  };
 
-  const handlePrev = useCallback(() => {
-    stopVoiceAudio();
-    setIsPlaying(false);
-    setIsTestAgentActive(false);
-    setCurrentIndex((prev) => (prev - 1 + PYVEX_PERSONAS.length) % PYVEX_PERSONAS.length);
-  }, []);
-
-  const handleToggleVoicePlay = async () => {
-    if (isPlaying || isTestAgentActive) {
+  const handleToggleCardAudio = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isPlaying) {
       stopVoiceAudio();
       setIsPlaying(false);
-      setIsTestAgentActive(false);
       return;
     }
 
-    setIsTestAgentActive(true);
+    stopVoiceAudio();
+    setIsPlaying(true);
     await playVoiceAudio({
       text: activeVoice.sampleScript,
-      elevenLabsVoiceId: activeVoice.elevenLabsId,
-      previewUrl: activeVoice.previewUrl,
-      apiKey: apiKey.trim(),
+      voiceId: voiceTuning.voiceId || activeVoice.elevenLabsId,
       gender: selectedGender,
-      pitch: activeVoice.pitch,
-      rate: activeVoice.rate,
+      pitch: voiceTuning.pitch,
+      rate: voiceTuning.speed,
       onStateChange: (playing) => {
         setIsPlaying(playing);
-        if (!playing) {
-          // Keep active for live mic mirroring for a few seconds
-          setTimeout(() => {
-            setIsTestAgentActive((current) => (isPlaying ? current : false));
-          }, 5000);
-        }
       },
     });
   };
-
-  // Keyboard navigation for personas
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.activeElement?.tagName === 'INPUT') return;
-      if (e.key === 'ArrowLeft') handlePrev();
-      if (e.key === 'ArrowRight') handleNext();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNext, handlePrev]);
 
   // Notify parent if persona changes
   useEffect(() => {
@@ -274,60 +263,42 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
             </button>
           </div>
 
-          {/* Persona quick switch cards in HeroCarousel */}
-          <div className="pt-2 space-y-2">
-            <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider">
-              <span className="text-[#666879]">Select Agent Persona ({currentIndex + 1} of {PYVEX_PERSONAS.length})</span>
-              <span className="text-[#845CFF] font-semibold">Active: {activePersona.voiceProvider}</span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {PYVEX_PERSONAS.map((p, index) => {
-                const isCurrent = index === currentIndex;
-                return (
-                  <button
-                    key={p.id}
-                    id={`persona-card-tab-${p.id}`}
-                    type="button"
-                    onClick={() => {
-                      stopVoiceAudio();
-                      setIsPlaying(false);
-                      setIsTestAgentActive(false);
-                      setCurrentIndex(index);
-                    }}
-                    className={`p-2.5 rounded-xl border text-left transition-all duration-200 flex flex-col justify-between gap-1.5 cursor-pointer ${
-                      isCurrent
-                        ? 'bg-[#1C1D25] border-[#845CFF] shadow-[0_0_14px_rgba(112,71,255,0.25)] ring-1 ring-[#845CFF]/50'
-                        : 'bg-[#0D0F13] border-[#292B3A] hover:border-[#34365C] hover:bg-[#12141A]'
-                    }`}
-                  >
-                    <div className="text-[11px] font-sans font-semibold text-[#F4F2F8] truncate w-full">
-                      {p.roleTitle.split(' ')[0]} {p.roleTitle.split(' ')[1] || ''}
-                    </div>
-                    <div className="flex items-center justify-between w-full gap-1">
-                      {/* Small pill-shaped tag indicating Voice Model provider */}
-                      <span
-                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-mono font-medium border ${
-                          p.voiceProvider === 'ElevenLabs'
-                            ? 'border-[#845CFF]/40 bg-[#845CFF]/15 text-[#D8B4FE]'
-                            : 'border-[#24D8ED]/40 bg-[#24D8ED]/15 text-[#67E8F9]'
-                        }`}
-                      >
-                        <span
-                          className={`w-1 h-1 rounded-full ${
-                            p.voiceProvider === 'ElevenLabs' ? 'bg-[#845CFF]' : 'bg-[#24D8ED]'
-                          }`}
-                        />
-                        <span>{p.voiceProvider}</span>
-                      </span>
-                      <span className="text-[9px] font-mono text-[#666879]">
-                        {p.metrics.latency}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Voice Tuning Calibration Trigger (Clean Outside Launcher) */}
+          <div className="pt-2">
+            <button
+              id="hero-voice-tuning-calibration-button"
+              type="button"
+              onClick={() => setIsVoiceTuningOpen(true)}
+              className="w-full p-4 rounded-2xl border text-left transition-all duration-300 flex items-center justify-between group cursor-pointer shadow-lg hover:shadow-[0_0_24px_rgba(112,71,255,0.25)] hover:border-[#845CFF]/60"
+              style={{
+                background: 'linear-gradient(135deg, #12141A 0%, #171924 100%)',
+                border: '1px solid #292B3A',
+              }}
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-[#845CFF]/15 border border-[#845CFF]/30 flex items-center justify-center text-[#A78BFA] group-hover:scale-105 group-hover:border-[#845CFF]/60 transition-all shadow-[0_0_12px_rgba(132,92,255,0.2)]">
+                  <Sliders className="w-5 h-5 text-[#845CFF]" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono uppercase tracking-wider font-bold text-[#F4F2F8]">
+                      Voice Tuning Calibration
+                    </span>
+                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full border border-purple-500/40 text-purple-300 bg-purple-500/15 flex items-center gap-1 font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#845CFF] animate-pulse" />
+                      Acoustic Studio
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#A4A3B2] mt-0.5 font-sans">
+                    Fine-tune pitch ({voiceTuning.pitch.toFixed(2)}x), speed ({voiceTuning.speed.toFixed(2)}x), regional accents &amp; human sweet voice signatures
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs font-mono text-[#845CFF] group-hover:text-[#A78BFA] transition-colors">
+                <span className="hidden sm:inline text-[11px] font-semibold">Calibrate</span>
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </button>
           </div>
         </div>
 
@@ -495,103 +466,40 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                   </h3>
                 </div>
 
-                {/* Persona Navigation Controls */}
+                {/* Real-time Acoustic Engine Badge */}
                 <div className="flex items-center gap-1.5">
-                  <button
-                    id="carousel-prev-button"
-                    onClick={handlePrev}
-                    className="w-8 h-8 rounded-full border border-[#292B3A] bg-[#12141A] hover:bg-[#171820] text-[#A4A3B2] hover:text-[#F4F2F8] flex items-center justify-center transition-all cursor-pointer"
-                    title="Previous Persona"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    id="carousel-next-button"
-                    onClick={handleNext}
-                    className="w-8 h-8 rounded-full border border-[#292B3A] bg-[#12141A] hover:bg-[#171820] text-[#A4A3B2] hover:text-[#F4F2F8] flex items-center justify-center transition-all cursor-pointer"
-                    title="Next Persona"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-medium border border-[#292B3A] bg-[#12141A] text-[#A4A3B2]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#20E99A] animate-pulse" />
+                    <span>Real-Time Synthesizer</span>
+                  </span>
                 </div>
               </div>
 
-              {/* Gender Switcher: Segmented control (Male selected in --purple-primary, Female muted) */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono uppercase tracking-wider text-[#A4A3B2] flex items-center justify-between">
-                  <span>Voice Gender Profile</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-[#666879]">
-                      Voice: {activeVoice.name}
-                    </span>
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-semibold border ${
-                        activePersona.voiceProvider === 'ElevenLabs'
-                          ? 'border-[#845CFF]/40 bg-[#845CFF]/10 text-[#C4B5FD]'
-                          : 'border-[#24D8ED]/40 bg-[#24D8ED]/10 text-[#67E8F9]'
-                      }`}
-                    >
-                      <span
-                        className={`w-1 h-1 rounded-full ${
-                          activePersona.voiceProvider === 'ElevenLabs' ? 'bg-[#845CFF]' : 'bg-[#24D8ED]'
-                        }`}
-                      />
-                      <span>{activePersona.voiceProvider}</span>
-                    </span>
-                  </div>
-                </label>
-
-                <div
-                  className="grid grid-cols-2 p-1 rounded-xl"
-                  style={{
-                    background: '#0D0F13',
-                    border: '1px solid #292B3A',
-                  }}
-                >
-                  <button
-                    type="button"
-                    id="gender-male-toggle"
-                    onClick={() => {
-                      if (selectedGender !== 'male') {
-                        stopVoiceAudio();
-                        setIsPlaying(false);
-                        setSelectedGender('male');
-                      }
-                    }}
-                    className={`py-2 px-4 rounded-lg text-xs font-mono uppercase tracking-wider font-semibold transition-all ${
-                      selectedGender === 'male'
-                        ? 'text-[#F4F2F8] shadow-[0_0_12px_rgba(112,71,255,0.4)]'
-                        : 'text-[#666879] hover:text-[#A4A3B2]'
-                    }`}
-                    style={{
-                      backgroundColor: selectedGender === 'male' ? '#7047FF' : 'transparent',
-                    }}
-                  >
-                    Male
-                  </button>
-
-                  <button
-                    type="button"
-                    id="gender-female-toggle"
-                    onClick={() => {
-                      if (selectedGender !== 'female') {
-                        stopVoiceAudio();
-                        setIsPlaying(false);
-                        setSelectedGender('female');
-                      }
-                    }}
-                    className={`py-2 px-4 rounded-lg text-xs font-mono uppercase tracking-wider font-semibold transition-all ${
-                      selectedGender === 'female'
-                        ? 'text-[#F4F2F8] shadow-[0_0_12px_rgba(112,71,255,0.4)]'
-                        : 'text-[#666879] hover:text-[#A4A3B2]'
-                    }`}
-                    style={{
-                      backgroundColor: selectedGender === 'female' ? '#7047FF' : 'transparent',
-                    }}
-                  >
-                    Female
-                  </button>
+              {/* Active Voice Acoustic Profile Status */}
+              <div
+                className="p-3 rounded-xl flex items-center justify-between text-xs font-mono"
+                style={{
+                  background: '#0D0F13',
+                  border: '1px solid #292B3A',
+                }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-2 h-2 rounded-full bg-[#20E99A] shadow-[0_0_8px_#20E99A]" />
+                  <span className="text-[#A4A3B2] text-[11px]">Active Voice Profile:</span>
+                  <span className="text-[#F4F2F8] font-semibold text-[11px] truncate max-w-[170px] sm:max-w-[220px]">
+                    {activeVoice.name}
+                  </span>
                 </div>
+                <button
+                  type="button"
+                  id="card-open-calibration-btn"
+                  onClick={() => setIsVoiceTuningOpen(true)}
+                  className="px-2.5 py-1 rounded-lg border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 text-[10px] flex items-center gap-1 transition-all cursor-pointer"
+                  title="Open Voice Tuning Calibration"
+                >
+                  <Sliders className="w-3 h-3" />
+                  <span>Calibrate</span>
+                </button>
               </div>
 
               {/* Audio Waveform Box: Dark inset box (#08090B) housing an animated bar-visualizer using alternating heights and color accents (#845CFF, #9655FF, #24D8ED) */}
@@ -664,73 +572,53 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
 
               {/* Sample Dialog Script Excerpt */}
               <div
-                className="p-3.5 rounded-xl text-xs font-sans text-[#A4A3B2] italic leading-relaxed"
+                className="p-3.5 rounded-xl text-xs font-sans text-[#A4A3B2] italic leading-relaxed flex items-start justify-between gap-3"
                 style={{
                   background: '#12141A',
                   border: '1px solid #292B3A',
                 }}
               >
-                &quot;{activeVoice.sampleScript}&quot;
-              </div>
-
-              {/* Input Field: Masked text input for API keys (background: #0D0F13; border: 1px solid #292B3A) */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono uppercase tracking-wider text-[#A4A3B2] flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <Key className="w-2.5 h-2.5 text-[#9655FF]" />
-                    <span>{activePersona.voiceProvider} Key (Optional Override)</span>
-                  </span>
-                  <span className="text-[9px] text-[#666879]">
-                    Leave blank for default {activePersona.voiceProvider} audio
-                  </span>
-                </label>
-
-                <div className="relative">
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={`${activePersona.voiceProvider === 'ElevenLabs' ? 'xi-...' : 'sk-...' } (Leave blank for studio audio)`}
-                    className="w-full rounded-xl px-3.5 py-2.5 text-xs font-mono text-[#F4F2F8] placeholder-[#666879] focus:outline-none focus:border-[#7047FF] transition-colors pr-10"
-                    style={{
-                      background: '#0D0F13',
-                      border: '1px solid #292B3A',
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#666879] hover:text-[#F4F2F8] transition-colors"
-                  >
-                    {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
+                <div className="flex-1">
+                  &quot;{activeVoice.sampleScript}&quot;
                 </div>
+                <button
+                  type="button"
+                  id={`card-audition-btn-${activePersona.id}`}
+                  onClick={handleToggleCardAudio}
+                  className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[10px] font-mono font-semibold flex items-center gap-1.5 transition-all ${
+                    isPlaying
+                      ? 'bg-rose-500 text-white shadow-[0_0_12px_rgba(244,63,94,0.4)]'
+                      : 'bg-[#7047FF]/20 hover:bg-[#7047FF]/30 text-[#845CFF] hover:text-white border border-[#7047FF]/40'
+                  }`}
+                  title={isPlaying ? 'Stop Voice Audition' : 'Instant Voice Audition'}
+                >
+                  {isPlaying ? (
+                    <>
+                      <Square className="w-3 h-3 fill-current" />
+                      <span>Stop</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3 h-3 fill-current" />
+                      <span>Audition</span>
+                    </>
+                  )}
+                </button>
               </div>
 
-              {/* Action Button: Full-width glowing pill button "▶ TEST PYVEX VOICE" with drop shadow (0 4px 15px rgba(112, 71, 255, 0.35)) */}
+              {/* Action Button: Full-width glowing pill button "▶ TEST PYVEX VOICE" */}
               <button
                 type="button"
                 id="test-agent-voice-button"
                 onClick={handleToggleVoicePlay}
-                className="w-full flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-full text-xs font-mono uppercase tracking-widest font-bold text-[#F4F2F8] transition-all duration-300 active:scale-98"
+                className="w-full flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-full text-xs font-mono uppercase tracking-widest font-bold text-[#F4F2F8] transition-all duration-300 active:scale-98 shadow-[0_4px_20px_rgba(112,71,255,0.4)] hover:shadow-[0_4px_28px_rgba(132,92,255,0.6)] hover:brightness-110"
                 style={{
-                  background: isPlaying || isTestAgentActive
-                    ? 'linear-gradient(90deg, #9655FF, #7047FF)'
-                    : 'linear-gradient(90deg, #7047FF, #845CFF)',
-                  boxShadow: '0 4px 15px rgba(112, 71, 255, 0.35)',
+                  background: 'linear-gradient(90deg, #7047FF, #9655FF)',
                   transform: tilt.isHovered ? 'translateZ(14px)' : 'translateZ(0px)',
                 }}
               >
-                {isPlaying || isTestAgentActive ? (
-                  <>
-                    <Square className="w-3.5 h-3.5 fill-current" />
-                    <span>■ STOP PYVEX VOICE</span>
-                  </>
-                ) : (
-                  <>
-                    <span>▶ TEST PYVEX VOICE</span>
-                  </>
-                )}
+                <Radio className="w-4 h-4 text-[#20E99A] animate-pulse" />
+                <span>▶ TEST PYVEX VOICE (LIVE SIMULATOR)</span>
               </button>
             </div>
 
@@ -757,6 +645,40 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Interactive Conversation Test Simulator Modal */}
+      <ConversationTestSimulator
+        isOpen={isSimulatorOpen}
+        onClose={() => setIsSimulatorOpen(false)}
+        initialVoiceId={voiceTuning.voiceId || activeVoice.elevenLabsId}
+        initialGender={selectedGender}
+        initialFlow={activePersona.id}
+        onPersistDraft={(draft) => {
+          setActiveDraft(draft);
+          if (draft.voiceId) {
+            setVoiceTuning((prev) => ({
+              ...prev,
+              voiceId: draft.voiceId,
+              gender: draft.gender,
+              pitch: draft.pitch,
+              speed: draft.rate,
+            }));
+            setSelectedGender(draft.gender);
+          }
+        }}
+      />
+
+      {/* Voice Tuning Calibration Modal */}
+      <VoiceSettingsPanel
+        isOpen={isVoiceTuningOpen}
+        onClose={() => setIsVoiceTuningOpen(false)}
+        activeFlowId={activePersona.id}
+        tuning={voiceTuning}
+        onUpdateTuning={(newTuning) => {
+          setVoiceTuning(newTuning);
+          setSelectedGender(newTuning.gender);
+        }}
+      />
     </section>
   );
 };

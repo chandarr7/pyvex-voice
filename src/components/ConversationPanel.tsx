@@ -11,6 +11,7 @@ interface ConversationPanelProps {
   suggestedPrompts: string[];
   onSelectPrompt: (prompt: string) => void;
   onInterrupt: () => void;
+  onReplayVoice?: (text: string) => void;
 }
 
 export const ConversationPanel: React.FC<ConversationPanelProps> = ({
@@ -22,6 +23,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   suggestedPrompts,
   onSelectPrompt,
   onInterrupt,
+  onReplayVoice,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +89,19 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   <>
                     <span>•</span>
                     <span>{msg.latencyMs}ms latency</span>
+                  </>
+                )}
+                {!isUser && onReplayVoice && (
+                  <>
+                    <span>•</span>
+                    <button
+                      onClick={() => onReplayVoice(msg.content)}
+                      className="hover:text-purple-300 text-purple-400/80 flex items-center gap-1 transition-colors"
+                      title="Play response with ElevenLabs Voice"
+                    >
+                      <Volume2 className="w-3 h-3" />
+                      <span>ElevenLabs</span>
+                    </button>
                   </>
                 )}
               </div>

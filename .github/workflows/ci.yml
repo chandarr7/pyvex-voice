@@ -6,6 +6,9 @@ on:
   push:
     branches:
       - "**"
+  pull_request:
+    branches:
+      - "**"
   workflow_dispatch:
 
 concurrency:
@@ -33,3 +36,6 @@ jobs:
 
       - name: Build client and server bundles
         run: npm run build
+
+      - name: Run test suite
+        run: npm test

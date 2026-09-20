@@ -24,9 +24,13 @@ import {
   Headphones,
   AlertCircle,
   CornerDownLeft,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { GeminiChatMessage, GeminiModelId, GeminiChatRole } from '../types';
 import { GEMINI_CHAT_ROLES } from '../data/geminiRoles';
+import { useAuth } from '../context/AuthContext';
+import { playVoiceAudio, stopVoiceAudio, ensureAudioUnlocked } from '../utils/audioEngine';
 
 interface GeminiChatbotProps {
   initialRole?: string;
@@ -77,9 +81,10 @@ const MODEL_OPTIONS: {
 ];
 
 export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
-  initialRole = 'clinical_intake',
+  initialRole = 'tilted_sales_agent',
   isCompact = false,
 }) => {
+  const { user } = useAuth();
   const [activeRole, setActiveRole] = useState<GeminiChatRole>(() => {
     return GEMINI_CHAT_ROLES.find((r) => r.id === initialRole) || GEMINI_CHAT_ROLES[0];
   });
@@ -106,8 +111,54 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // ElevenLabs Voice Response States
+  const [autoVoiceResponse, setAutoVoiceResponse] = useState<boolean>(true);
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>('EXAVITQu4vr4xnSDxMaL');
+  const [playingMsgId, setPlayingMsgId] = useState<string | null>(null);
+  const [isVoiceLoading, setIsVoiceLoading] = useState<boolean>(false);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Stop audio on unmount
+  useEffect(() => {
+    return () => {
+      stopVoiceAudio();
+    };
+  }, []);
+
+  const handlePlayVoice = async (msgId: string, text: string) => {
+    if (playingMsgId === msgId) {
+      stopVoiceAudio();
+      setPlayingMsgId(null);
+      return;
+    }
+
+    stopVoiceAudio();
+    setPlayingMsgId(msgId);
+    setIsVoiceLoading(true);
+
+    try {
+      await ensureAudioUnlocked();
+      const token = user ? await user.getIdToken() : null;
+      await playVoiceAudio({
+        text,
+        voiceId: selectedVoiceId,
+        gender: 'female',
+        pitch: 1.0,
+        rate: 1.0,
+        authToken: token || undefined,
+        onStateChange: (playing) => {
+          if (!playing) setPlayingMsgId(null);
+        },
+      });
+    } catch (err) {
+      console.warn('Voice playback error:', err);
+      setPlayingMsgId(null);
+    } finally {
+      setIsVoiceLoading(false);
+    }
+  };
 
   // Auto-scroll conversation thread when messages update
   useEffect(() => {
@@ -179,11 +230,23 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
         content: m.content,
       }));
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (user) {
+        try {
+          const token = await user.getIdToken();
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+        } catch {
+          // Guest fallback
+        }
+      }
+
       const res = await fetch('/api/gemini/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           messages: historyPayload,
           systemInstruction: systemInstruction,
@@ -207,6 +270,11 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
       };
 
       setMessages((prev) => [...prev, botMessage]);
+
+      // Automatically speak response with ElevenLabs voice if enabled
+      if (autoVoiceResponse && data.text) {
+        handlePlayVoice(botMessage.id, data.text);
+      }
     } catch (err: any) {
       console.error('Chat error:', err);
       const errText = err?.message || 'Failed to connect to Gemini service.';
@@ -301,8 +369,57 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
             </div>
           </div>
 
-          {/* Right Actions: System Instruction Toggle & Clear Thread */}
+          {/* Right Actions: ElevenLabs Voice Toggle, System Prompt, and Clear */}
           <div className="flex items-center gap-2">
+            {/* ElevenLabs Voice Switcher */}
+            <div className="flex items-center gap-1.5 bg-[#171820] border border-[#292B3A] rounded-xl p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (playingMsgId) stopVoiceAudio();
+                  setAutoVoiceResponse(!autoVoiceResponse);
+                }}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-mono transition-all ${
+                  autoVoiceResponse
+                    ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40'
+                    : 'text-[#A4A3B2] hover:text-[#F4F2F8]'
+                }`}
+                title={autoVoiceResponse ? 'ElevenLabs Auto-Voice is Active' : 'Enable ElevenLabs Auto-Voice'}
+              >
+                {autoVoiceResponse ? <Volume2 className="w-3.5 h-3.5 text-purple-400" /> : <VolumeX className="w-3.5 h-3.5 text-[#666879]" />}
+                <span className="hidden sm:inline">ElevenLabs:</span>
+                <span className="font-semibold text-[10px]">{autoVoiceResponse ? 'ON' : 'OFF'}</span>
+              </button>
+
+              {autoVoiceResponse && (
+                <select
+                  value={selectedVoiceId}
+                  onChange={(e) => setSelectedVoiceId(e.target.value)}
+                  className="bg-[#0D0F13] border border-purple-500/30 rounded-lg px-2 py-1 text-[10px] font-mono text-purple-200 focus:outline-none cursor-pointer"
+                  title="Select ElevenLabs Voice"
+                >
+                  <optgroup label="Sweet Human Female Voices">
+                    <option value="pFZP5JQG7iQjIQuC4Bku">🌸 Lily (Sweet Velvet)</option>
+                    <option value="jsCqWAovK2LkecY7zXl4">✨ Freya (Sweet Radiant)</option>
+                    <option value="LcfcDJNigUd50AZSDxio">🌷 Emily (Sweet Gentle)</option>
+                    <option value="XB0fDUnXU5powFXDhCwa">🕊️ Charlotte (Sweet Melodic)</option>
+                    <option value="piTKgcLEGmPE4e6mEKli">🌙 Nicole (Sweet Whisper-Soft)</option>
+                  </optgroup>
+                  <optgroup label="Standard Enterprise Voices">
+                    <option value="EXAVITQu4vr4xnSDxMaL">Sarah (Executive)</option>
+                    <option value="Xb7hH8MSUJpSbSDYk0k2">Alice (Clinical)</option>
+                    <option value="hpp4J3VqNfWAUOO0d1Us">Bella (Concierge)</option>
+                    <option value="cgSgspJ2msm6clMCkdW9">Jessica (Dispatch)</option>
+                    <option value="JBFqnCBsd6RMkjVDRZzb">George (Physician)</option>
+                    <option value="IKne3meq5aSn9XLyUdCD">Charlie (Sales SDR)</option>
+                    <option value="cjVigY5qzO86Huf0OWal">Eric (Advisor)</option>
+                    <option value="TX3LPaxmHKxFdv7VOQHJ">Liam (Specialist)</option>
+                    <option value="CwhRBWXzGAHq8TQ4Fs17">Roger (Fleet)</option>
+                  </optgroup>
+                </select>
+              )}
+            </div>
+
             <button
               onClick={() => setIsSystemPromptOpen(!isSystemPromptOpen)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono transition-all border ${
@@ -489,6 +606,35 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
                         <span className="px-1.5 py-0.5 rounded bg-[#0D0F13] text-[#24D8ED] border border-[#24D8ED]/20 text-[9px]">
                           {msg.model}
                         </span>
+                      )}
+                      {!msg.error && (
+                        <button
+                          type="button"
+                          onClick={() => handlePlayVoice(msg.id, msg.content)}
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono transition-all border ${
+                            playingMsgId === msg.id
+                              ? 'bg-purple-600/30 border-purple-400 text-purple-200 animate-pulse'
+                              : 'border-[#292B3A] bg-[#0D0F13] text-purple-300 hover:text-purple-100 hover:border-purple-500/60'
+                          }`}
+                          title={playingMsgId === msg.id ? 'Stop voice playback' : 'Listen with ElevenLabs voice'}
+                        >
+                          {playingMsgId === msg.id ? (
+                            <>
+                              <VolumeX className="w-3 h-3 text-purple-300" />
+                              <span>Stop</span>
+                            </>
+                          ) : isVoiceLoading && playingMsgId === msg.id ? (
+                            <>
+                              <Activity className="w-3 h-3 animate-spin text-purple-400" />
+                              <span>Loading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="w-3 h-3 text-purple-400" />
+                              <span>ElevenLabs</span>
+                            </>
+                          )}
+                        </button>
                       )}
                     </div>
 

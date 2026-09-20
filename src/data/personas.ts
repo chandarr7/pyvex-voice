@@ -2,7 +2,6 @@ export interface PersonaVoice {
   gender: 'male' | 'female';
   name: string;
   elevenLabsId: string;
-  previewUrl?: string;
   tone: string;
   sampleScript: string;
   pitch: number;
@@ -16,7 +15,7 @@ export interface Persona {
   headline: string;
   subheadline: string;
   statBadge: string;
-  voiceProvider: 'ElevenLabs';
+  voiceProvider: 'ElevenLabs' | 'Cartesia' | string;
   voiceModel: string;
   metrics: {
     latency: string;
@@ -37,36 +36,34 @@ export const PYVEX_PERSONAS: Persona[] = [
     category: 'ENTERPRISE B2B',
     roleTitle: 'Inbound Sales SDR Agent',
     headline: 'The Real-Time Voice Infrastructure for Enterprise AI.',
-    subheadline: 'Hyper-realistic ElevenLabs voice agents that adapt tone, voice, and industry context in sub-300ms.',
-    statBadge: 'ELEVENLABS TURBO V2.5 LIVE',
+    subheadline: 'Hyper-realistic voice agents that adapt tone, voice, and industry context in sub-300ms.',
+    statBadge: 'PYVEX ENGINE V2.5 LIVE',
     voiceProvider: 'ElevenLabs',
     voiceModel: 'Turbo v2.5',
     metrics: {
-      latency: '<140ms Latency',
+      latency: '<300ms Latency',
       accuracy: '1,500,000+ Sessions',
       resolution: '99.99% Uptime',
     },
     accentColor: '#9655FF',
     features: ['Real-time qualification', 'CRM & HubSpot live sync', 'Dynamic objection handling'],
     voices: {
-      female: {
-        gender: 'female',
-        name: 'Sarah (Mature & Reassuring)',
-        elevenLabsId: 'EXAVITQu4vr4xnSDxMaL',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/01a3e33c-6e99-4ee7-8543-ff2216a32186.mp3',
-        tone: 'Articulate, consultative, polished executive cadence',
-        sampleScript: 'Hello, this is Sarah from Pyvex Enterprise Solutions powered by ElevenLabs. I can walk you through our sub-300ms acoustic pipeline, SIP trunking integrations, and custom voice persona deployments.',
-        pitch: 1.0,
-        rate: 1.0,
-      },
       male: {
         gender: 'male',
-        name: 'Adam (Dominant & Firm)',
-        elevenLabsId: 'pNInz6obpgDQGcFmaJgB',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pNInz6obpgDQGcFmaJgB/d6905d7a-dd26-4187-bfff-1bd3a5ea7cac.mp3',
+        name: 'Charlie (Inbound SDR)',
+        elevenLabsId: 'IKne3meq5aSn9XLyUdCD',
         tone: 'Persuasive, energetic, professional enterprise sales demeanor',
         sampleScript: 'Hi there, thanks for reaching out to Pyvex. I understand your team is evaluating real-time conversational voice infrastructure for your enterprise stack. What volume of concurrent voice sessions are you planning for this quarter?',
         pitch: 1.0,
+        rate: 1.02,
+      },
+      female: {
+        gender: 'female',
+        name: 'Sarah (Inbound SDR)',
+        elevenLabsId: 'EXAVITQu4vr4xnSDxMaL',
+        tone: 'Articulate, consultative, polished executive cadence',
+        sampleScript: 'Hello, this is Sarah from Pyvex Enterprise Solutions. I can walk you through our sub-300ms acoustic pipeline, SIP trunking integrations, and custom voice persona deployments.',
+        pitch: 1.02,
         rate: 1.0,
       },
     },
@@ -77,11 +74,11 @@ export const PYVEX_PERSONAS: Persona[] = [
     roleTitle: 'Clinical Triage & Patient Intake',
     headline: 'Autonomous Patient Intake with Clinical Empathy',
     subheadline: 'HIPAA-compliant vocal triage, intelligent EHR symptom routing, and instant appointment booking with ultra-low latency response.',
-    statBadge: 'HIPAA Certified • ElevenLabs Clinical',
+    statBadge: 'HIPAA Certified • HL7 FHIR Compliant',
     voiceProvider: 'ElevenLabs',
     voiceModel: 'Turbo v2.5',
     metrics: {
-      latency: '135ms',
+      latency: '240ms',
       accuracy: '99.4%',
       resolution: '88% unassisted',
     },
@@ -90,23 +87,21 @@ export const PYVEX_PERSONAS: Persona[] = [
     voices: {
       female: {
         gender: 'female',
-        name: 'Matilda (Professional & Empathetic)',
-        elevenLabsId: 'XrExE9yKIg1WjnnlVkGX',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/XrExE9yKIg1WjnnlVkGX/b930e18d-6b4d-466e-bab2-0ae97c6d8535.mp3',
+        name: 'Dr. Alice (Clinical Intake)',
+        elevenLabsId: 'Xb7hH8MSUJpSbSDYk0k2',
         tone: 'Calm, empathetic, precise clinical tone',
         sampleScript: 'Hello! I am your clinical intake assistant at Pyvex Health. I can triage your symptoms, assess severity, and schedule your specialist consultation right away.',
-        pitch: 1.0,
-        rate: 1.0,
+        pitch: 1.05,
+        rate: 0.98,
       },
       male: {
         gender: 'male',
-        name: 'Brian (Deep & Comforting)',
-        elevenLabsId: 'nPczCjzI2devNBz1zQrb',
-        previewUrl: 'https://api.us.elevenlabs.io/v1/voices/nPczCjzI2devNBz1zQrb/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJwcmVtYWRlIiwiZmlsZW5hbWUiOiIyZGQzZTcyYy00ZmQzLTQyZjEtOTNlYS1hYmM1ZDRlNWFhMWQubXAzIiwidGltZXN0YW1wIjoxNzg5ODg3NjAwMDAwMDAwfQ%3D%3D',
+        name: 'Dr. George (Physician Advisor)',
+        elevenLabsId: 'JBFqnCBsd6RMkjVDRZzb',
         tone: 'Warm, authoritative, reassuring cadence',
-        sampleScript: 'Good day. This is Brian with Pyvex Patient Care. I am reviewing your recent chart updates. How are you feeling this evening?',
-        pitch: 1.0,
-        rate: 1.0,
+        sampleScript: 'Good day. This is Dr. George with Pyvex Patient Care. I am reviewing your recent chart updates. How are you feeling this evening?',
+        pitch: 0.95,
+        rate: 0.97,
       },
     },
   },
@@ -116,11 +111,11 @@ export const PYVEX_PERSONAS: Persona[] = [
     roleTitle: 'Wealth Advisory & Fraud Verification',
     headline: 'Institutional Security Meets Real-Time Vocal Banking',
     subheadline: 'Protect high-value accounts with continuous biometric voice verification, explain portfolio yields, and execute authorized wire transfers.',
-    statBadge: 'SOC-2 Type II • ElevenLabs Verified',
+    statBadge: 'SOC-2 Type II • PCI-DSS Level 1',
     voiceProvider: 'ElevenLabs',
-    voiceModel: 'Flash v2.5',
+    voiceModel: 'Turbo v2.5',
     metrics: {
-      latency: '110ms',
+      latency: '220ms',
       accuracy: '99.8%',
       resolution: '92% deflection',
     },
@@ -129,23 +124,21 @@ export const PYVEX_PERSONAS: Persona[] = [
     voices: {
       female: {
         gender: 'female',
-        name: 'Bella (Professional & Warm)',
+        name: 'Bella (Wealth Concierge)',
         elevenLabsId: 'hpp4J3VqNfWAUOO0d1Us',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/hpp4J3VqNfWAUOO0d1Us/dab0f5ba-3aa4-48a8-9fad-f138fea1126d.mp3',
         tone: 'Sophisticated, poised, articulate finance voice',
         sampleScript: 'Good afternoon. I detected an unusual debit of four hundred twenty dollars in Zurich. Shall I verify this transaction with your digital token, or immediately lock the card?',
-        pitch: 1.0,
+        pitch: 1.02,
         rate: 1.0,
       },
       male: {
         gender: 'male',
-        name: 'Eric (Smooth & Trustworthy)',
+        name: 'Eric (Institutional Advisor)',
         elevenLabsId: 'cjVigY5qzO86Huf0OWal',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/cjVigY5qzO86Huf0OWal/d098fda0-6456-4030-b3d8-63aa048c9070.mp3',
         tone: 'Deep, trustworthy, corporate executive resonance',
         sampleScript: 'Welcome back. Your private portfolio gained one point four percent today, led by semiconductor index rebalancing. Would you like a detailed breakdown of your quarterly dividends?',
-        pitch: 1.0,
-        rate: 1.0,
+        pitch: 0.92,
+        rate: 0.98,
       },
     },
   },
@@ -155,11 +148,11 @@ export const PYVEX_PERSONAS: Persona[] = [
     roleTitle: 'High-Net-Worth Property Concierge',
     headline: 'Elite Conversational Concierge for Ultra-Luxury Real Estate',
     subheadline: 'Qualify multi-million dollar buyers, provide architectural specs over natural phone dialogue, and coordinate private twilight showings.',
-    statBadge: 'HNW Qualified • ElevenLabs Ultra',
+    statBadge: 'HNW Qualified • 24/7 Global Coverage',
     voiceProvider: 'ElevenLabs',
     voiceModel: 'Turbo v2.5',
     metrics: {
-      latency: '140ms',
+      latency: '250ms',
       accuracy: '98.9%',
       resolution: '3.4x lead conversion',
     },
@@ -168,22 +161,20 @@ export const PYVEX_PERSONAS: Persona[] = [
     voices: {
       female: {
         gender: 'female',
-        name: 'Lily (Velvety & Elegant)',
-        elevenLabsId: 'pFZP5JQG7iQjIQuC4Bku',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pFZP5JQG7iQjIQuC4Bku/89b68b35-b3dd-4348-a84a-a3c13a3c2b30.mp3',
+        name: 'Sarah (Luxury Host)',
+        elevenLabsId: 'EXAVITQu4vr4xnSDxMaL',
         tone: 'Warm, refined, persuasive hospitality cadence',
         sampleScript: 'Welcome to the Penthouse Collection at Tribeca Tower. The residence features twelve-foot ceilings and private elevator access. Would you like to reserve a private viewing for this Thursday evening?',
-        pitch: 1.0,
-        rate: 1.0,
+        pitch: 1.04,
+        rate: 1.02,
       },
       male: {
         gender: 'male',
-        name: 'Roger (Laid-Back & Resonant)',
-        elevenLabsId: 'CwhRBWXzGAHq8TQ4Fs17',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/CwhRBWXzGAHq8TQ4Fs17/58ee3ff5-f6f2-4628-93b8-e38eb31806b0.mp3',
+        name: 'Liam (Estates Advisor)',
+        elevenLabsId: 'TX3LPaxmHKxFdv7VOQHJ',
         tone: 'Dynamic, polished, charismatic advisory',
-        sampleScript: 'Hello! I am Roger representing Pyvex Estates. We just listed an off-market modernist villa in Aspen with heated lap pools and guest lodge. Shall I send the private prospectus to your email?',
-        pitch: 1.0,
+        sampleScript: 'Hello! I am Liam representing Pyvex Estates. We just listed an off-market modernist villa in Aspen with heated lap pools and guest lodge. Shall I send the private prospectus to your email?',
+        pitch: 0.96,
         rate: 1.0,
       },
     },
@@ -194,11 +185,11 @@ export const PYVEX_PERSONAS: Persona[] = [
     roleTitle: 'Autonomous Driver Dispatch & Routing',
     headline: 'Hands-Free Cellular Dispatch for Heavy Freight Fleets',
     subheadline: 'Keep commercial drivers focused on the road with voice-first telematics, adverse weather reroutes, and instant dock reservation checks.',
-    statBadge: 'DOT Compliant • ElevenLabs Telephony',
+    statBadge: 'DOT Compliant • Telephony SIP Native',
     voiceProvider: 'ElevenLabs',
     voiceModel: 'Turbo v2.5',
     metrics: {
-      latency: '120ms',
+      latency: '195ms',
       accuracy: '99.6%',
       resolution: '99.99% uptime',
     },
@@ -207,23 +198,21 @@ export const PYVEX_PERSONAS: Persona[] = [
     voices: {
       female: {
         gender: 'female',
-        name: 'Alice (Clear & Engaging)',
-        elevenLabsId: 'Xb7hH8MSUJpSbSDYk0k2',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/Xb7hH8MSUJpSbSDYk0k2/d10f7534-11f6-41fe-a012-2de1e482d336.mp3',
+        name: 'Jessica (Fleet Operations)',
+        elevenLabsId: 'cgSgspJ2msm6clMCkdW9',
         tone: 'Crisp, attentive, clear aviation/dispatch cadence',
         sampleScript: 'Unit 402, this is Pyvex Fleet Dispatch. Interstate 80 is closed near the pass due to ice. I have calculated an alternate route via Highway 6 that adds only fifteen minutes to your dock window.',
-        pitch: 1.0,
-        rate: 1.0,
+        pitch: 1.03,
+        rate: 1.04,
       },
       male: {
         gender: 'male',
-        name: 'Bill (Wise & Resonant)',
-        elevenLabsId: 'pqHfZKP75CvOlQylNhV4',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pqHfZKP75CvOlQylNhV4/d782b3ff-84ba-4029-848c-acf01285524d.mp3',
+        name: 'Roger (Fleet Controller)',
+        elevenLabsId: 'CwhRBWXzGAHq8TQ4Fs17',
         tone: 'Dependable, steady, resonant operator voice',
         sampleScript: 'Copy that, driver. Your bill of lading has been pre-cleared at Gate 4 in Chicago. Pull straight through to Bay 12 for priority unloading.',
-        pitch: 1.0,
-        rate: 1.0,
+        pitch: 0.93,
+        rate: 1.02,
       },
     },
   },
@@ -233,11 +222,11 @@ export const PYVEX_PERSONAS: Persona[] = [
     roleTitle: 'White-Glove Customer Experience',
     headline: 'Real-Time Conversational Commerce & Order Resolution',
     subheadline: 'Instantly resolve return authorizations, check cross-border parcel delivery statuses, and upsell complementary luxury accessories in natural dialogue.',
-    statBadge: 'Shopify Plus Native • ElevenLabs Concierge',
+    statBadge: 'Shopify Plus Native • Stripe Integrated',
     voiceProvider: 'ElevenLabs',
     voiceModel: 'Turbo v2.5',
     metrics: {
-      latency: '115ms',
+      latency: '210ms',
       accuracy: '99.2%',
       resolution: '94% first-contact CSAT',
     },
@@ -246,24 +235,98 @@ export const PYVEX_PERSONAS: Persona[] = [
     voices: {
       female: {
         gender: 'female',
-        name: 'Jessica (Playful & Warm)',
-        elevenLabsId: 'cgSgspJ2msm6clMCkdW9',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/cgSgspJ2msm6clMCkdW9/56a97bf8-b69b-448f-846c-c3a11683d45a.mp3',
+        name: 'Bella (Concierge)',
+        elevenLabsId: 'hpp4J3VqNfWAUOO0d1Us',
         tone: 'Friendly, upbeat, modern concierge tone',
         sampleScript: 'Hi there! Your bespoke Italian leather luggage was dispatched this morning and will arrive by tomorrow afternoon. Would you like me to text you the courier tracking link right now?',
-        pitch: 1.0,
-        rate: 1.0,
+        pitch: 1.08,
+        rate: 1.03,
       },
       male: {
         gender: 'male',
-        name: 'Chris (Charming & Natural)',
-        elevenLabsId: 'iP95p4xoKVk53GoZ742B',
-        previewUrl: 'https://storage.googleapis.com/eleven-public-prod/premade/voices/iP95p4xoKVk53GoZ742B/3f4bde72-cc48-40dd-829f-57fbf906f4d7.mp3',
+        name: 'Charlie (Retail Specialist)',
+        elevenLabsId: 'IKne3meq5aSn9XLyUdCD',
         tone: 'Attentive, courteous, helpful retail specialist',
         sampleScript: 'Hello! I can process your exchange for the charcoal wool overcoat in size large immediately. I will email the pre-paid return slip while we are on the line.',
-        pitch: 1.0,
-        rate: 1.0,
+        pitch: 0.94,
+        rate: 0.99,
       },
     },
+  },
+];
+
+export interface SweetVoiceProfile {
+  id: string;
+  name: string;
+  badge: string;
+  tagline: string;
+  description: string;
+  tone: string;
+  pitch: number;
+  rate: number;
+  sampleScript: string;
+  flag: string;
+}
+
+export const SWEET_FEMALE_VOICES: SweetVoiceProfile[] = [
+  {
+    id: 'pFZP5JQG7iQjIQuC4Bku',
+    name: 'Lily',
+    badge: 'Sweet Velvet',
+    tagline: 'Warm, velvet, soothing acoustic warmth',
+    description: 'A comforting, velvety sweet tone that puts listeners at ease immediately. Exceptional for healthcare, caregiving, and gentle guidance.',
+    tone: 'Soothing, gentle, sweet velvet acoustic warmth',
+    pitch: 1.08,
+    rate: 0.96,
+    sampleScript: "Hello! I'm Lily. It is such a pleasure to speak with you today. Take your time, and let me know how I can help make things easier for you.",
+    flag: '🌸',
+  },
+  {
+    id: 'jsCqWAovK2LkecY7zXl4',
+    name: 'Freya',
+    badge: 'Sweet Radiant',
+    tagline: 'Bright, youthful, sparkling sweetness',
+    description: 'Radiant, cheerful, and charmingly sweet cadence with a warm acoustic smile. Ideal for delightful concierge and friendly sales hospitality.',
+    tone: 'Charming, radiant, playful sweet smile',
+    pitch: 1.12,
+    rate: 1.0,
+    sampleScript: "Hi there! I'm Freya. I'm so excited to connect with you! Everything is running smoothly, and I'd love to assist you with whatever you need.",
+    flag: '✨',
+  },
+  {
+    id: 'LcfcDJNigUd50AZSDxio',
+    name: 'Emily',
+    badge: 'Sweet Gentle',
+    tagline: 'Soft-spoken, calm, tender intimacy',
+    description: 'Tender, sweet, soft-spoken conversational tone with calm empathetic reassurance. Perfect for personal consultations and patient check-ins.',
+    tone: 'Tender, calm, soft-spoken empathetic sweetness',
+    pitch: 1.06,
+    rate: 0.98,
+    sampleScript: "Hello, this is Emily. I'm right here with you. Please feel free to share any details, and we'll take care of everything step by step.",
+    flag: '🌷',
+  },
+  {
+    id: 'XB0fDUnXU5powFXDhCwa',
+    name: 'Charlotte',
+    badge: 'Sweet Melodic',
+    tagline: 'Melodic, delicate, silky enunciation',
+    description: 'Delicate, sweet, and melodic cadence with silky pronunciation. Perfect for luxury boutique concierges, narration, and VIP welcoming.',
+    tone: 'Melodic, delicate, silky elegant sweetness',
+    pitch: 1.10,
+    rate: 0.95,
+    sampleScript: "A very warm welcome to you. I'm Charlotte. It is an absolute delight to assist you today with the finest care and personalized attention.",
+    flag: '🕊️',
+  },
+  {
+    id: 'piTKgcLEGmPE4e6mEKli',
+    name: 'Nicole',
+    badge: 'Sweet Whisper-Soft',
+    tagline: 'Whisper-soft, intimate, peaceful warmth',
+    description: 'Velvety, intimate, and peacefully sweet whispery warmth designed for comforting interactions, mindful wellness, and bedtime calm.',
+    tone: 'Velvety, peaceful, intimate whispery sweetness',
+    pitch: 1.04,
+    rate: 0.97,
+    sampleScript: "Hi, I'm Nicole. Take a gentle breath. I'm here to listen, support you, and guide you through whenever you are ready.",
+    flag: '🌙',
   },
 ];

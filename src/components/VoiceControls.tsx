@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mic, MicOff, ArrowUp, Volume2, VolumeX, Activity, AlertCircle, Play } from 'lucide-react';
+import { Mic, MicOff, ArrowUp, Volume2, VolumeX, Activity, AlertCircle, Play, Sliders } from 'lucide-react';
 
 interface VoiceControlsProps {
   isListening: boolean;
@@ -8,6 +8,9 @@ interface VoiceControlsProps {
   micEnergy?: number;
   isVadSpeaking?: boolean;
   autoplayBlocked?: boolean;
+  selectedVoiceId?: string;
+  onSelectVoiceId?: (voiceId: string) => void;
+  onOpenVoiceSettings?: () => void;
   onUnlockAutoplay?: () => void;
   onOpenTriage?: () => void;
   onToggleMic: () => void;
@@ -23,6 +26,9 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
   micEnergy = 0,
   isVadSpeaking = false,
   autoplayBlocked = false,
+  selectedVoiceId,
+  onSelectVoiceId,
+  onOpenVoiceSettings,
   onUnlockAutoplay,
   onOpenTriage,
   onToggleMic,
@@ -143,6 +149,51 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
           >
             {ttsAudioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
+
+          {/* Quick ElevenLabs Voice Switcher & Acoustic Tuning */}
+          {onSelectVoiceId && (
+            <div className="hidden sm:flex items-center gap-1.5">
+              <select
+                id="elevenlabs-voice-selector"
+                value={selectedVoiceId || 'EXAVITQu4vr4xnSDxMaL'}
+                onChange={(e) => onSelectVoiceId(e.target.value)}
+                className="bg-[#181a1f] border border-purple-500/30 hover:border-purple-400/50 rounded-full px-3 py-1.5 text-[11px] font-mono text-purple-200 focus:outline-none cursor-pointer"
+                title="Select Active ElevenLabs Voice"
+              >
+                <optgroup label="Sweet Human Female Voices">
+                  <option value="pFZP5JQG7iQjIQuC4Bku">🌸 Lily (Sweet Velvet)</option>
+                  <option value="jsCqWAovK2LkecY7zXl4">✨ Freya (Sweet Radiant)</option>
+                  <option value="LcfcDJNigUd50AZSDxio">🌷 Emily (Sweet Gentle)</option>
+                  <option value="XB0fDUnXU5powFXDhCwa">🕊️ Charlotte (Sweet Melodic)</option>
+                  <option value="piTKgcLEGmPE4e6mEKli">🌙 Nicole (Sweet Whisper-Soft)</option>
+                </optgroup>
+                <optgroup label="Standard Enterprise Voices">
+                  <option value="EXAVITQu4vr4xnSDxMaL">ElevenLabs: Sarah (Executive)</option>
+                  <option value="Xb7hH8MSUJpSbSDYk0k2">ElevenLabs: Alice (Clinical)</option>
+                  <option value="hpp4J3VqNfWAUOO0d1Us">ElevenLabs: Bella (Concierge)</option>
+                  <option value="cgSgspJ2msm6clMCkdW9">ElevenLabs: Jessica (Dispatch)</option>
+                  <option value="JBFqnCBsd6RMkjVDRZzb">ElevenLabs: George (Physician)</option>
+                  <option value="IKne3meq5aSn9XLyUdCD">ElevenLabs: Charlie (Sales SDR)</option>
+                  <option value="cjVigY5qzO86Huf0OWal">ElevenLabs: Eric (Wealth Advisor)</option>
+                  <option value="TX3LPaxmHKxFdv7VOQHJ">ElevenLabs: Liam (Specialist)</option>
+                  <option value="CwhRBWXzGAHq8TQ4Fs17">ElevenLabs: Roger (Fleet Dispatch)</option>
+                </optgroup>
+              </select>
+
+              {onOpenVoiceSettings && (
+                <button
+                  id="open-voice-tuning-button"
+                  type="button"
+                  onClick={onOpenVoiceSettings}
+                  className="p-1.5 rounded-full border border-purple-500/40 bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 hover:text-purple-100 transition-all flex items-center gap-1 text-[11px] font-mono shadow-sm"
+                  title="Tune Voice Pitch, Speed & Accent for Active Persona"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline text-[10px] uppercase tracking-wider pr-1">Tune Voice</span>
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Quick Triage Audit Trigger */}
           {onOpenTriage && (

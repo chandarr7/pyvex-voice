@@ -7,7 +7,7 @@ interface GeminiChatSectionProps {
 }
 
 export const GeminiChatSection: React.FC<GeminiChatSectionProps> = ({
-  initialRole = 'clinical_intake',
+  initialRole = 'tilted_sales_agent',
 }) => {
   return (
     <section
@@ -26,11 +26,11 @@ export const GeminiChatSection: React.FC<GeminiChatSectionProps> = ({
           </div>
 
           <h2 className="text-3xl sm:text-4xl font-extrabold text-[#F4F2F8] tracking-tight mb-4">
-            Gemini Conversational Agents
+            Tilted Sales & Conversational Agents
           </h2>
 
           <p className="text-sm sm:text-base text-[#A4A3B2] leading-relaxed">
-            Experience real-time, multi-turn dialogue powered by Google Gemini. Switch between specialized clinical triage, fraud investigation, autonomous logistics, and pipeline engineering roles with fine-tuned system instructions and dynamic model selection.
+            Experience real-time, multi-turn dialogue with the Tilted Sales Agent and specialized domain personas. Powered by Google Gemini with fine-tuned system instructions, dynamic model selection, and sub-second responses.
           </p>
 
           {/* Key capability pills */}

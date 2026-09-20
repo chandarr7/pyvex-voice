@@ -1,139 +1,33 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
+import http from 'http';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import {
+  generateConversationResponse,
+  SUPPORTED_GEMINI_MODELS,
+  DEFAULT_GEMINI_MODEL,
+  GeminiServiceError,
+} from './server/ai/gemini';
+import { requireAuth, optionalAuth } from './server/auth/middleware';
+import { sessionManager, AgentSession } from './server/sessions/manager';
+import {
+  chatRateLimiter,
+  sessionStartRateLimiter,
+  voicePreviewRateLimiter,
+} from './server/security/rateLimiter';
+import {
+  SAFE_VOICE_CATALOG,
+  generateServerVoicePreview,
+  VoiceServiceError,
+} from './server/voices/service';
+import { setupVoiceWebSocket } from './server/ws/voiceSocket';
+import { PRESET_FLOWS } from './server/flows/presetFlows';
+export { PRESET_FLOWS };
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
-
-// Lazy-initialized Gemini client instance
-let geminiClient: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI {
-  if (!geminiClient) {
-    geminiClient = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-  }
-  return geminiClient;
-}
-
-// In-memory store for active sessions
-interface AgentSession {
-  id: string;
-  flow: string;
-  transport: string;
-  sttService: string;
-  llmService: string;
-  ttsService: string;
-  createdAt: number;
-  status: 'initializing' | 'active' | 'idle' | 'stopped';
-  messageCount: number;
-}
-
-const activeSessions = new Map<string, AgentSession>();
-
-// Predefined services catalog matching Pipecat's ecosystem
-const SERVICES_CATALOG = {
-  transports: [
-    { id: 'smallwebrtc', name: 'SmallWebRTC', type: 'webrtc', description: 'Lightweight peer-to-peer WebRTC transport' },
-    { id: 'daily', name: 'Daily WebRTC', type: 'webrtc', description: 'Enterprise-grade ultra-low latency WebRTC room' },
-    { id: 'websocket', name: 'WebSocket Server', type: 'websocket', description: 'Direct duplex audio/json streaming transport' },
-  ],
-  stt: [
-    { id: 'deepgram', name: 'Deepgram Nova-2', latency: '120ms', streaming: true },
-    { id: 'whisper', name: 'OpenAI Whisper', latency: '280ms', streaming: true },
-    { id: 'cartesia-stt', name: 'Cartesia Listen', latency: '90ms', streaming: true },
-    { id: 'google-stt', name: 'Google Cloud Speech', latency: '150ms', streaming: true },
-    { id: 'assemblyai', name: 'AssemblyAI Streaming', latency: '180ms', streaming: true },
-  ],
-  llm: [
-    { id: 'gemini-flash', name: 'Google Gemini 2.5 Flash', latency: '180ms', contextWindow: '1M tokens' },
-    { id: 'gpt-4o-mini', name: 'OpenAI GPT-4o Mini', latency: '210ms', contextWindow: '128k tokens' },
-    { id: 'claude-3-5-haiku', name: 'Anthropic Claude 3.5 Haiku', latency: '240ms', contextWindow: '200k tokens' },
-    { id: 'groq-llama', name: 'Groq Llama 3.3 70B', latency: '95ms', contextWindow: '128k tokens' },
-  ],
-  tts: [
-    { id: 'elevenlabs-turbo', name: 'ElevenLabs Turbo v2.5', latency: '110ms', voice: 'Sarah / Adam' },
-    { id: 'elevenlabs-flash', name: 'ElevenLabs Flash v2.5', latency: '95ms', voice: 'Bella / Eric' },
-    { id: 'elevenlabs-multilingual', name: 'ElevenLabs Multilingual v2', latency: '140ms', voice: 'Jessica / Chris' },
-    { id: 'elevenlabs-expressive', name: 'ElevenLabs Expressive', latency: '125ms', voice: 'Lily / Roger' },
-  ],
-  vad: [
-    { id: 'silero', name: 'Silero VAD v5 (ONNX)', latency: '30ms', local: true },
-    { id: 'smart-turn', name: 'SmartTurn v3.2 End-of-Turn Analyzer', latency: '45ms', local: true },
-  ]
-};
-
-// Preset bot personas / conversation flows from Pyvex STUDIO & Pipecat examples
-const PRESET_FLOWS = [
-  {
-    id: 'clinical_triage',
-    name: 'Clinical Triage & Patient Intake',
-    description: 'HIPAA-compliant vocal triage, intelligent EHR symptom routing, and instant appointment booking.',
-    greeting: "Hello! I am your clinical intake assistant at Pyvex Health. I can triage your symptoms and schedule your specialist appointment right away.",
-    systemPrompt: "You are an empathetic, clinical intake voice assistant at Pyvex Health. Collect symptoms politely, triage urgency, and schedule appointments without providing medical diagnoses.",
-    suggestedPrompts: [
-      "I've had a persistent fever and cough for two days.",
-      "Can I schedule an appointment with Dr. Evelyn for Thursday?",
-      "Please confirm my insurance coverage and copay."
-    ]
-  },
-  {
-    id: 'fraud_alert',
-    name: 'Wealth Advisory & Fraud Verification',
-    description: 'Continuous biometric voice verification, portfolio analytics, and authorized wire transfers.',
-    greeting: "Good afternoon. I detected an unusual transaction of $420.00 in Zurich. Would you like me to verify this charge or freeze the card immediately?",
-    systemPrompt: "You are a secure, poised private banking concierge. Verify identity, explain transactions calmly, and confirm security actions with precision.",
-    suggestedPrompts: [
-      "Verify the Zurich charge as authorized.",
-      "Freeze my primary debit card immediately.",
-      "What is my portfolio return year-to-date?"
-    ]
-  },
-  {
-    id: 'luxury_real_estate',
-    name: 'Luxury Real Estate Concierge',
-    description: 'Qualify high-net-worth buyers, deliver architectural specs, and schedule private viewings.',
-    greeting: "Welcome to the Penthouse Collection at Tribeca Tower. The residence features twelve-foot ceilings and private elevator access. Shall we arrange a private viewing?",
-    systemPrompt: "You are an elite, articulate luxury real estate concierge representing Pyvex Estates. Describe property amenities with refined vocabulary and coordinate viewings.",
-    suggestedPrompts: [
-      "What are the square footage and HOA fees for the penthouse?",
-      "Can we schedule a private sunset viewing this Thursday?",
-      "Send the confidential prospectus to my personal email."
-    ]
-  },
-  {
-    id: 'fleet_dispatch',
-    name: 'Autonomous Fleet Dispatch & Routing',
-    description: 'Telematics, adverse weather rerouting, and instant dock reservation checks.',
-    greeting: "Unit 402, this is Pyvex Fleet Dispatch. Interstate 80 is closed near the pass due to ice. I have calculated an alternate route via Highway 6.",
-    systemPrompt: "You are a crisp, reliable commercial fleet dispatcher. Communicate concise route updates, dock instructions, and fuel stops.",
-    suggestedPrompts: [
-      "Confirm ETA with the Highway 6 reroute.",
-      "Is Gate 4 at the Chicago distribution hub ready for unloading?",
-      "Log my remaining hours of service for today."
-    ]
-  },
-  {
-    id: 'customer_support',
-    name: 'White-Glove Customer Experience',
-    description: 'Friendly agent resolving account inquiries, return authorizations, and tracking delivery.',
-    greeting: "Hello! Thanks for reaching out to Pyvex Concierge Support. How can I help you today?",
-    systemPrompt: "You are a courteous, efficient retail support concierge. Keep answers concise, clear, and vocal-friendly.",
-    suggestedPrompts: [
-      "Can you check the status of my order #4829?",
-      "I'd like to initiate an exchange for my cashmere overcoat.",
-      "How do I update my shipping address?"
-    ]
-  }
-];
+app.use(express.json({ limit: '1mb' }));
 
 // --- API ROUTES ---
 
@@ -144,30 +38,64 @@ app.get('/api/health', (_req, res) => {
     framework: 'pipecat-ai / pyvex-voice',
     version: '1.0.0',
     uptimeSeconds: Math.floor(process.uptime()),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
-// Runtime status & system metrics
+// Runtime status & system metrics (Truthful: measured or not available)
 app.get('/api/status', (_req, res) => {
   res.json({
     status: 'running',
-    activeSessionsCount: activeSessions.size,
-    availableTransports: SERVICES_CATALOG.transports.map(t => t.id),
+    activeSessionsCount: sessionManager.getActiveCount(),
+    geminiConfigured: !!process.env.GEMINI_API_KEY,
+    elevenLabsConfigured: !!process.env.ELEVENLABS_API_KEY,
     defaultFlow: 'customer_support',
-    framePipelineStats: {
-      averageSttLatencyMs: 118,
-      averageLlmTtftMs: 195,
-      averageTtsLatencyMs: 102,
-      totalPipelineRoundtripMs: 415,
-      framesProcessed: 1420 + Math.floor(process.uptime() * 5),
-    }
+    telemetry: {
+      metricsSource: 'session_runtime',
+      pipelineLatency: 'measured_per_turn',
+    },
   });
 });
 
-// Services catalog
+// Truthful Services catalog: exposes only operational providers
 app.get('/api/services', (_req, res) => {
-  res.json(SERVICES_CATALOG);
+  const geminiReady = !!process.env.GEMINI_API_KEY;
+  const elevenLabsReady = !!process.env.ELEVENLABS_API_KEY;
+
+  res.json({
+    transports: [
+      { id: 'http_turn_streaming', name: 'HTTP Conversational Transport', type: 'http', status: 'ready' },
+      { id: 'smallwebrtc', name: 'SmallWebRTC Transport (Local/Development)', type: 'webrtc', status: 'in_development' },
+    ],
+    stt: [
+      { id: 'browser_speech', name: 'Browser Speech Recognition (Web Speech API)', streaming: true, status: 'ready', local: true },
+    ],
+    llm: [
+      {
+        id: 'gemini',
+        name: 'Google Gemini',
+        models: SUPPORTED_GEMINI_MODELS,
+        defaultModel: DEFAULT_GEMINI_MODEL,
+        status: geminiReady ? 'ready' : 'missing_api_key',
+      },
+    ],
+    tts: [
+      {
+        id: 'elevenlabs',
+        name: 'ElevenLabs Streaming TTS (Server-Side)',
+        status: elevenLabsReady ? 'ready' : 'missing_api_key',
+      },
+      {
+        id: 'web_speech',
+        name: 'Browser Speech Synthesis (Client Engine)',
+        status: 'ready',
+        local: true,
+      },
+    ],
+    vad: [
+      { id: 'client_rms_vad', name: 'Client Audio Energy VAD (16kHz RMS)', status: 'ready', local: true },
+    ],
+  });
 });
 
 // Flow presets
@@ -175,453 +103,346 @@ app.get('/api/flows', (_req, res) => {
   res.json(PRESET_FLOWS);
 });
 
-// Start a new bot session
-app.post('/api/start', (req, res) => {
-  const {
-    flow = 'customer_support',
-    transport = 'smallwebrtc',
-    stt = 'deepgram',
-    llm = 'gemini-flash',
-    tts = 'elevenlabs-turbo',
-  } = req.body || {};
-
-  const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const selectedFlow = PRESET_FLOWS.find(f => f.id === flow) || PRESET_FLOWS[0];
-
-  const newSession: AgentSession = {
-    id: sessionId,
-    flow: selectedFlow.id,
-    transport,
-    sttService: stt,
-    llmService: llm,
-    ttsService: tts,
-    createdAt: Date.now(),
-    status: 'active',
-    messageCount: 1,
-  };
-
-  activeSessions.set(sessionId, newSession);
-
+// Gemini Available Models Info (Authoritative server-side list)
+app.get('/api/gemini/models', (_req, res) => {
   res.json({
-    success: true,
-    sessionId,
-    status: 'ready',
-    transport,
-    greeting: selectedFlow.greeting,
-    roomUrl: transport === 'daily' ? `https://pyvex.daily.co/${sessionId}` : null,
-    wsUrl: transport === 'websocket' ? `wss://${req.headers.host || 'localhost:3000'}/ws/${sessionId}` : null,
-    offer: transport === 'smallwebrtc' ? { type: 'offer', sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=Pipecat\r\n' } : null,
-    session: newSession,
-  });
-});
-
-// Built-in studio ElevenLabs audio samples by Voice ID from official ElevenLabs CDN
-const ELEVENLABS_SAMPLES: Record<string, string> = {
-  'EXAVITQu4vr4xnSDxMaL': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/01a3e33c-6e99-4ee7-8543-ff2216a32186.mp3',
-  'pNInz6obpgDQGcFmaJgB': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pNInz6obpgDQGcFmaJgB/d6905d7a-dd26-4187-bfff-1bd3a5ea7cac.mp3',
-  'XrExE9yKIg1WjnnlVkGX': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/XrExE9yKIg1WjnnlVkGX/b930e18d-6b4d-466e-bab2-0ae97c6d8535.mp3',
-  'nPczCjzI2devNBz1zQrb': 'https://api.us.elevenlabs.io/v1/voices/nPczCjzI2devNBz1zQrb/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJwcmVtYWRlIiwiZmlsZW5hbWUiOiIyZGQzZTcyYy00ZmQzLTQyZjEtOTNlYS1hYmM1ZDRlNWFhMWQubXAzIiwidGltZXN0YW1wIjoxNzg5ODg3NjAwMDAwMDAwfQ%3D%3D',
-  'hpp4J3VqNfWAUOO0d1Us': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/hpp4J3VqNfWAUOO0d1Us/dab0f5ba-3aa4-48a8-9fad-f138fea1126d.mp3',
-  'cjVigY5qzO86Huf0OWal': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/cjVigY5qzO86Huf0OWal/d098fda0-6456-4030-b3d8-63aa048c9070.mp3',
-  'pFZP5JQG7iQjIQuC4Bku': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pFZP5JQG7iQjIQuC4Bku/89b68b35-b3dd-4348-a84a-a3c13a3c2b30.mp3',
-  'CwhRBWXzGAHq8TQ4Fs17': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/CwhRBWXzGAHq8TQ4Fs17/58ee3ff5-f6f2-4628-93b8-e38eb31806b0.mp3',
-  'Xb7hH8MSUJpSbSDYk0k2': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/Xb7hH8MSUJpSbSDYk0k2/d10f7534-11f6-41fe-a012-2de1e482d336.mp3',
-  'pqHfZKP75CvOlQylNhV4': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pqHfZKP75CvOlQylNhV4/d782b3ff-84ba-4029-848c-acf01285524d.mp3',
-  'cgSgspJ2msm6clMCkdW9': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/cgSgspJ2msm6clMCkdW9/56a97bf8-b69b-448f-846c-c3a11683d45a.mp3',
-  'iP95p4xoKVk53GoZ742B': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/iP95p4xoKVk53GoZ742B/3f4bde72-cc48-40dd-829f-57fbf906f4d7.mp3',
-};
-
-// ElevenLabs Voice Listing
-app.get('/api/elevenlabs/voices', async (_req, res) => {
-  try {
-    const key = process.env.ELEVENLABS_API_KEY;
-    const response = await fetch('https://api.elevenlabs.io/v1/voices', {
-      headers: key ? { 'xi-api-key': key } : {},
-    });
-    if (response.ok) {
-      const data = await response.json();
-      return res.json(data);
-    }
-  } catch (err) {
-    console.warn('Unable to fetch live ElevenLabs voices:', err);
-  }
-  res.json({
-    voices: Object.entries(ELEVENLABS_SAMPLES).map(([voice_id, preview_url]) => ({
-      voice_id,
-      preview_url,
-      provider: 'ElevenLabs',
+    defaultModel: DEFAULT_GEMINI_MODEL,
+    models: SUPPORTED_GEMINI_MODELS.map((m) => ({
+      id: m,
+      name: m,
+      status: 'supported',
     })),
   });
 });
 
-// ElevenLabs TTS Synthesis Proxy & Streaming Endpoint
-app.post('/api/tts/elevenlabs', async (req, res) => {
-  const { text, voiceId = 'EXAVITQu4vr4xnSDxMaL', apiKey } = req.body || {};
-  const effectiveKey = (apiKey || req.headers['xi-api-key'] || process.env.ELEVENLABS_API_KEY || '').toString().trim();
-
-  if (!text || typeof text !== 'string') {
-    return res.status(400).json({ error: 'Text string is required for speech synthesis' });
-  }
-
-  // If ElevenLabs API Key is available, stream real-time audio synthesis from ElevenLabs API
-  if (effectiveKey) {
-    try {
-      const upstream = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': effectiveKey,
-          },
-          body: JSON.stringify({
-            text,
-            model_id: 'eleven_turbo_v2_5',
-            voice_settings: {
-              stability: 0.5,
-              similarity_boost: 0.8,
-            },
-          }),
-        }
-      );
-
-      if (upstream.ok) {
-        res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader('x-voice-provider', 'ElevenLabs');
-        const arrayBuf = await upstream.arrayBuffer();
-        return res.send(Buffer.from(arrayBuf));
-      }
-      console.warn(`ElevenLabs upstream API returned status ${upstream.status}`);
-    } catch (apiErr) {
-      console.warn('ElevenLabs upstream synthesis failed:', apiErr);
-    }
-  }
-
-  // Fallback to high-fidelity studio ElevenLabs voice audio for the specific voice ID
-  const sampleUrl = ELEVENLABS_SAMPLES[voiceId] || ELEVENLABS_SAMPLES['EXAVITQu4vr4xnSDxMaL'];
-  try {
-    const sampleResp = await fetch(sampleUrl);
-    if (sampleResp.ok) {
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('x-voice-provider', 'ElevenLabs-Sample');
-      const arrayBuf = await sampleResp.arrayBuffer();
-      return res.send(Buffer.from(arrayBuf));
-    }
-  } catch (sampleErr) {
-    console.warn('ElevenLabs sample fetch failed:', sampleErr);
-  }
-
-  res.status(503).json({ error: 'ElevenLabs voice stream could not be generated' });
+// Safe Voice Catalog & Preview
+app.get('/api/voices', (_req, res) => {
+  res.json({
+    elevenLabsConfigured: !!process.env.ELEVENLABS_API_KEY,
+    voices: SAFE_VOICE_CATALOG,
+  });
 });
 
-// List active sessions
-app.get('/api/sessions', (_req, res) => {
-  res.json(Array.from(activeSessions.values()));
+app.post('/api/voices/:id/preview', voicePreviewRateLimiter.middleware(), async (req, res) => {
+  const { id } = req.params;
+  const { text, pitch, rate, volume, voiceModel, stability, similarity_boost } = req.body || {};
+
+  try {
+    const preview = await generateServerVoicePreview(id, text, {
+      pitch: typeof pitch === 'number' ? pitch : undefined,
+      rate: typeof rate === 'number' ? rate : undefined,
+      volume: typeof volume === 'number' ? volume : undefined,
+      voiceModel: typeof voiceModel === 'string' ? voiceModel : undefined,
+      stability: typeof stability === 'number' ? stability : undefined,
+      similarity_boost: typeof similarity_boost === 'number' ? similarity_boost : undefined,
+    });
+    res.setHeader('Content-Type', preview.contentType);
+    res.setHeader('Cache-Control', 'no-cache');
+    return res.send(preview.buffer);
+  } catch (err: any) {
+    if (err instanceof VoiceServiceError) {
+      return res.status(err.statusCode).json({
+        error: err.message,
+        code: err.code,
+      });
+    }
+    return res.status(500).json({
+      error: 'Failed to generate voice preview.',
+      code: 'VOICE_PREVIEW_ERROR',
+    });
+  }
+});
+
+// Direct Voice Synthesis endpoint for interactive testing
+app.post('/api/voices/synthesize', voicePreviewRateLimiter.middleware(), async (req, res) => {
+  const { voiceId = 'EXAVITQu4vr4xnSDxMaL', text, pitch, rate, volume, voiceModel, stability } = req.body || {};
+
+  try {
+    const preview = await generateServerVoicePreview(voiceId, text, {
+      pitch: typeof pitch === 'number' ? pitch : undefined,
+      rate: typeof rate === 'number' ? rate : undefined,
+      volume: typeof volume === 'number' ? volume : undefined,
+      voiceModel: typeof voiceModel === 'string' ? voiceModel : undefined,
+      stability: typeof stability === 'number' ? stability : undefined,
+    });
+    res.setHeader('Content-Type', preview.contentType);
+    res.setHeader('Cache-Control', 'no-cache');
+    return res.send(preview.buffer);
+  } catch (err: any) {
+    if (err instanceof VoiceServiceError) {
+      return res.status(err.statusCode).json({
+        error: err.message,
+        code: err.code,
+      });
+    }
+    return res.status(500).json({
+      error: 'Failed to synthesize voice audio.',
+      code: 'SYNTHESIS_ERROR',
+    });
+  }
+});
+
+// Start a new bot session (Allows Authenticated or Guest/Demo sessions)
+app.post(
+  '/api/start',
+  optionalAuth,
+  sessionStartRateLimiter.middleware(),
+  (req: Request, res: Response) => {
+    const userId = req.user?.uid || 'guest_voice_engineer';
+    const {
+      flow = 'customer_support',
+      transport = 'http_turn_streaming',
+      stt = 'browser_speech',
+      llm = DEFAULT_GEMINI_MODEL,
+      tts = 'elevenlabs',
+    } = req.body || {};
+
+    const selectedFlow = PRESET_FLOWS.find((f) => f.id === flow) || PRESET_FLOWS[0];
+
+    const session = sessionManager.createSession({
+      userId,
+      flow: selectedFlow.id,
+      transport,
+      stt,
+      llm,
+      tts,
+    });
+
+    res.status(201).json({
+      success: true,
+      sessionId: session.id,
+      userId: session.userId,
+      status: 'ready',
+      transport: session.transport,
+      flow: selectedFlow.id,
+      greeting: selectedFlow.greeting,
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt,
+    });
+  }
+);
+
+// List user's active sessions (Strict Ownership: returns only authenticated user's sessions)
+app.get('/api/sessions', optionalAuth, (req: Request, res: Response) => {
+  const userId = req.user?.uid;
+  if (!userId) {
+    return res.json([]);
+  }
+  const sessions = sessionManager.listUserSessions(userId);
+  res.json(sessions);
+});
+
+// Get single session details
+app.get('/api/sessions/:id', optionalAuth, (req: Request, res: Response) => {
+  const userId = req.user?.uid || 'guest_voice_user';
+  const { id } = req.params;
+  const session = sessionManager.getSession(id, userId) || sessionManager.getSessionRaw(id);
+
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found or expired.', code: 'SESSION_NOT_FOUND' });
+  }
+
+  res.json(session);
 });
 
 // Stop a session
-app.post('/api/sessions/:id/stop', (req, res) => {
+app.post('/api/sessions/:id/stop', optionalAuth, (req: Request, res: Response) => {
+  const userId = req.user?.uid || 'guest_voice_user';
   const { id } = req.params;
-  const session = activeSessions.get(id);
-  if (session) {
-    session.status = 'stopped';
-    activeSessions.delete(id);
-    return res.json({ success: true, message: `Session ${id} closed.` });
+
+  const stopped = sessionManager.stopSession(id, userId) || sessionManager.stopSessionRaw(id);
+  if (stopped) {
+    return res.json({ success: true, message: `Session ${id} successfully stopped.` });
   }
-  res.status(404).json({ error: 'Session not found' });
+  return res.status(404).json({ error: 'Session not found or already stopped.', code: 'SESSION_NOT_FOUND' });
 });
 
-// Gemini Available Models Info
-app.get('/api/gemini/models', (_req, res) => {
+// Dedicated Gemini Chat Endpoint (Honest model inference with optional authentication)
+app.post(
+  '/api/gemini/chat',
+  optionalAuth,
+  chatRateLimiter.middleware(),
+  async (req: Request, res: Response) => {
+    try {
+      const { messages = [], systemInstruction = '', model = DEFAULT_GEMINI_MODEL } = req.body || {};
+
+      if (!Array.isArray(messages) || messages.length === 0) {
+        return res.status(400).json({
+          error: 'Messages array is required and must contain at least one turn.',
+          code: 'INVALID_REQUEST',
+        });
+      }
+
+      const result = await generateConversationResponse({
+        messages,
+        systemInstruction,
+        model,
+      });
+
+      return res.json({
+        success: true,
+        text: result.text,
+        model: result.model,
+        latencyMs: result.latencyMs,
+        timestamp: Date.now(),
+      });
+    } catch (err: any) {
+      if (err instanceof GeminiServiceError) {
+        return res.status(err.statusCode).json({
+          error: err.message,
+          code: err.code,
+          details: err.details,
+        });
+      }
+      return res.status(500).json({
+        error: err?.message || 'Unexpected error while calling Gemini API',
+        code: 'LLM_ERROR',
+      });
+    }
+  }
+);
+
+// Voice/Chat interaction turn handler (Supports Authenticated, Demo & Guest turns)
+app.post(
+  '/api/chat',
+  optionalAuth,
+  chatRateLimiter.middleware(),
+  async (req: Request, res: Response) => {
+    const userId = req.user?.uid || 'guest_voice_user';
+    const { sessionId, message, flow = 'customer_support', flowId, model = DEFAULT_GEMINI_MODEL } = req.body || {};
+    const activeFlowKey = flowId || flow;
+
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({
+        error: 'Missing or empty message parameter.',
+        code: 'INVALID_REQUEST',
+      });
+    }
+
+    const query = message.trim();
+
+    // Verify session ownership or retrieve raw session if sessionId is provided
+    let session: AgentSession | null = null;
+    if (sessionId) {
+      session = sessionManager.getSession(sessionId, userId) || sessionManager.getSessionRaw(sessionId);
+    }
+
+    const targetFlow = PRESET_FLOWS.find((f) => f.id === activeFlowKey) || PRESET_FLOWS[0];
+
+    // Build context preserving server-authoritative history
+    const conversationTurns: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    if (session && session.history.length > 0) {
+      // Include past turns
+      for (const turn of session.history) {
+        conversationTurns.push({ role: turn.role, content: turn.content });
+      }
+    }
+    // Add current turn
+    conversationTurns.push({ role: 'user', content: query });
+
+    const systemPrompt = `${targetFlow.systemPrompt} You are an oral voice assistant in a real-time conversational pipeline. Keep your answers brief, punchy, conversational, and direct (1 to 2 spoken sentences maximum). Never use markdown asterisks or bullet points as they will be spoken verbatim by speech synthesis.`;
+
+    try {
+      const result = await generateConversationResponse({
+        messages: conversationTurns,
+        systemInstruction: systemPrompt,
+        model,
+      });
+
+      // Update session history with authentic turns
+      if (session) {
+        sessionManager.appendTurn(session.id, userId, query, result.text);
+      }
+
+      return res.json({
+        success: true,
+        response: result.text,
+        botReply: result.text,
+        text: result.text,
+        userQuery: query,
+        flow: targetFlow.id,
+        model: result.model,
+        latencyMs: result.latencyMs,
+        timestamp: Date.now(),
+        conversationTurnsCount: session ? session.history.length : 1,
+      });
+    } catch (err: any) {
+      // NEVER fabricate business actions or return HTTP 200 on failure!
+      if (err instanceof GeminiServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details,
+        });
+      }
+      return res.status(502).json({
+        success: false,
+        error: err?.message || 'Upstream provider failure occurred.',
+        code: 'LLM_ERROR',
+      });
+    }
+  }
+);
+
+// Real-Time Pipeline Diagnostic Triage API (Truthful diagnostics)
+app.get('/api/pipeline/diagnose', (_req, res) => {
+  const geminiConfigured = !!process.env.GEMINI_API_KEY;
+  const elevenLabsConfigured = !!process.env.ELEVENLABS_API_KEY;
+
+  const isHealthy = geminiConfigured;
+
   res.json({
-    defaultModel: 'gemini-3.5-flash',
-    models: [
+    timestamp: new Date().toISOString(),
+    overallStatus: isHealthy ? 'ready' : 'configuration_required',
+    layers: [
       {
-        id: 'gemini-3.5-flash',
-        name: 'Gemini 3.5 Flash',
-        badge: 'General Tasks',
-        description: 'Balanced latency and intelligence for multi-turn conversations.',
-        speed: 'Fast (~150ms)',
+        layer: 'client_audio_ingress',
+        name: 'Browser Audio Ingress & Permissions',
+        status: 'ready',
+        description: 'Web Audio API MediaStream ingress with user-gesture unlock.',
       },
       {
-        id: 'gemini-3.1-flash-lite',
-        name: 'Gemini 3.1 Flash Lite',
-        badge: 'Fastest',
-        description: 'Optimized for high-throughput, low-latency streaming and quick replies.',
-        speed: 'Ultra-fast (~90ms)',
+        layer: 'vad_turn_boundary',
+        name: 'Voice Activity Detection (Client RMS)',
+        status: 'ready',
+        description: 'Analyzes instantaneous RMS energy with onset gating and silence detection.',
       },
       {
-        id: 'gemini-3.1-pro-preview',
-        name: 'Gemini 3.1 Pro Preview',
-        badge: 'Complex Reasoning',
-        description: 'Deep multi-step reasoning, medical triage analysis, and code synthesis.',
-        speed: 'High Precision (~350ms)',
+        layer: 'stt_transcription',
+        name: 'Speech-to-Text (STT Engine)',
+        status: 'ready',
+        activeProvider: 'Browser Speech Recognition (Development)',
+        note: 'Server streaming STT provider (Deepgram) not configured in local environment.',
       },
       {
-        id: 'gemini-3.8-flash',
-        name: 'Gemini 3.8 Flash',
-        badge: 'Flagship Speed',
-        description: 'Next-gen foundation model with enhanced multimodal and acoustic awareness.',
-        speed: 'Balanced (~180ms)',
+        layer: 'llm_orchestration',
+        name: 'LLM Turn Aggregator & Model Synthesis',
+        status: geminiConfigured ? 'ready' : 'not_configured',
+        modelProvider: 'Google Gemini',
+        geminiApiKeyConfigured: geminiConfigured,
+      },
+      {
+        layer: 'tts_audio_egress',
+        name: 'Text-to-Speech & Client Playback',
+        status: elevenLabsConfigured ? 'ready' : 'client_fallback_only',
+        engine: elevenLabsConfigured ? 'ElevenLabs (Server) + Web Speech' : 'Browser Web Speech Synthesis (Local)',
+        elevenLabsConfigured,
       },
     ],
   });
 });
 
-// Dedicated Gemini Multi-Turn Chatbot Endpoint
-app.post('/api/gemini/chat', async (req, res) => {
-  try {
-    const {
-      messages = [],
-      systemInstruction = '',
-      model = 'gemini-3.5-flash',
-    } = req.body || {};
-
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'Messages array is required and must contain at least one message.' });
-    }
-
-    // Supported Gemini models as specified in guidelines
-    const validModels = [
-      'gemini-3.5-flash',
-      'gemini-3.1-flash-lite',
-      'gemini-3.1-pro-preview',
-      'gemini-3.8-flash',
-    ];
-    const selectedModel = validModels.includes(model) ? model : 'gemini-3.5-flash';
-
-    // Format conversation history into valid Gemini content turns
-    // Each message has role ('user' | 'model') and parts
-    const contents = messages.map((m: { role: string; content?: string; text?: string }) => {
-      const isModel = m.role === 'model' || m.role === 'assistant';
-      const textContent = m.text || m.content || '';
-      return {
-        role: isModel ? 'model' : 'user',
-        parts: [{ text: textContent }],
-      };
-    });
-
-    const ai = getGeminiClient();
-    const startTime = Date.now();
-
-    // Prepare configuration with optional system instruction
-    const config: Record<string, any> = {};
-    if (systemInstruction && typeof systemInstruction === 'string' && systemInstruction.trim().length > 0) {
-      config.systemInstruction = systemInstruction.trim();
-    }
-
-    const response = await ai.models.generateContent({
-      model: selectedModel,
-      contents,
-      config: Object.keys(config).length > 0 ? config : undefined,
-    });
-
-    const latencyMs = Date.now() - startTime;
-    const replyText = response.text || '';
-
-    return res.json({
-      success: true,
-      text: replyText,
-      model: selectedModel,
-      latencyMs,
-      timestamp: Date.now(),
-    });
-  } catch (err: any) {
-    console.error('Error generating response with Gemini API:', err);
-    return res.status(500).json({
-      error: err?.message || 'Failed to generate response from Gemini API',
-    });
-  }
-});
-
-// Chat / Voice interaction turn handler
-app.post('/api/chat', async (req, res) => {
-  const { sessionId, message, flow = 'customer_support', flowId, model = 'gemini-3.5-flash' } = req.body || {};
-  const activeFlowKey = flowId || flow;
-
-  if (!message || typeof message !== 'string') {
-    return res.status(400).json({ error: 'Missing message parameter' });
-  }
-
-  const session = sessionId ? activeSessions.get(sessionId) : null;
-  if (session) {
-    session.messageCount += 1;
-  }
-
-  const targetFlow = PRESET_FLOWS.find(f => f.id === activeFlowKey) || PRESET_FLOWS[0];
-  const query = message.trim();
-  const startTime = Date.now();
-
-  // Diagnostic print to ensure UserStoppedSpeakingFrame is properly received and triggering LLM context dispatch
-  console.log(`[Diagnostic] UserStoppedSpeakingFrame properly received for session: ${sessionId || 'ephemeral'}`);
-  console.log(`[LLMUserAggregator] Status: TURN_SEALED | Aggregated user turn concluded. UserStoppedSpeakingFrame confirmed -> triggering context dispatch.`);
-  console.log(`[LLMUserAggregator] Context message: "${query.slice(0, 80)}" -> Dispatching to model: ${model || 'gemini-3.5-flash'}`);
-
-  let replyText = '';
-  let modelUsed = 'rule-engine';
-
-  // 1. Attempt dynamic LLM generation using Google Gemini API
-  try {
-    const ai = getGeminiClient();
-    const systemPrompt = `${targetFlow.systemPrompt} You are an oral voice assistant in a real-time conversational pipeline. Keep your answers brief, punchy, conversational, and direct (1 to 2 spoken sentences maximum). Never use markdown asterisks or bullet points as they will be spoken verbatim by TTS.`;
-
-    const response = await ai.models.generateContent({
-      model: model || 'gemini-3.5-flash',
-      contents: [{ role: 'user', parts: [{ text: query }] }],
-      config: {
-        systemInstruction: systemPrompt,
-      },
-    });
-
-    if (response.text && response.text.trim()) {
-      replyText = response.text.trim();
-      modelUsed = model || 'gemini-3.5-flash';
-    }
-  } catch (geminiErr: any) {
-    console.warn('Gemini API call failed in /api/chat, applying flow fallback:', geminiErr?.message);
-  }
-
-  // 2. High-fidelity flow fallback if API key is not present or Gemini failed
-  if (!replyText) {
-    const lower = query.toLowerCase();
-    if (targetFlow.id === 'clinical_triage' || targetFlow.id === 'patient_intake') {
-      if (lower.includes('appointment') || lower.includes('schedule') || lower.includes('thursday') || lower.includes('tuesday')) {
-        replyText = "I have reserved an appointment for you with Dr. Evelyn Vance. A calendar confirmation has been sent to your patient portal.";
-      } else if (lower.includes('fever') || lower.includes('cough') || lower.includes('headache') || lower.includes('symptom')) {
-        replyText = "I've recorded your symptoms. Have you experienced any shortness of breath or chills along with the fever?";
-      } else {
-        replyText = `Thank you for sharing that. I've noted: "${query}". Our clinical triage team is actively reviewing your chart.`;
-      }
-    } else if (targetFlow.id === 'fraud_alert') {
-      if (lower.includes('authorized') || lower.includes('verify') || lower.includes('approve')) {
-        replyText = "The transaction of $420.00 in Zurich has been verified and authorized. Your security status is all clear.";
-      } else if (lower.includes('freeze') || lower.includes('block') || lower.includes('stolen')) {
-        replyText = "Your primary debit card has been immediately frozen. A replacement contactless card is being overnighted.";
-      } else {
-        replyText = `Understood. I am cross-referencing your security telemetry for "${query}" right now.`;
-      }
-    } else if (targetFlow.id === 'fleet_dispatch') {
-      if (lower.includes('eta') || lower.includes('route') || lower.includes('highway')) {
-        replyText = "ETA via Highway 6 is 14:20 hours. Ice clearing crews report clear pavement on the southern corridor.";
-      } else {
-        replyText = `Dispatch received: "${query}". Dock bay reservations and fuel stops are confirmed.`;
-      }
-    } else {
-      // Customer support default
-      if (lower.includes('order') || lower.includes('status') || lower.includes('track')) {
-        replyText = "Order #4829 has been processed and is out for delivery with FedEx. Tracking indicates arrival tomorrow by 2:00 PM.";
-      } else if (lower.includes('exchange') || lower.includes('return')) {
-        replyText = "I've initiated an exchange authorization for your cashmere overcoat. A prepaid shipping label is ready in your email.";
-      } else {
-        replyText = `I hear you regarding "${query}". I'm actively handling that for you right now—is there anything else you need?`;
-      }
-    }
-  }
-
-  const elapsedMs = Date.now() - startTime;
-  console.log(`[LLMUserAggregator] Status: DISPATCH_COMPLETE | Model (${modelUsed}) delivered response in ${elapsedMs}ms. Passing turn to LLMAssistantAggregator.`);
-
-  const metrics = {
-    vadDurationMs: 28,
-    sttDurationMs: 112,
-    llmTtftMs: Math.max(120, elapsedMs),
-    ttsDurationMs: 95,
-    totalLatencyMs: Math.max(290, elapsedMs + 180),
-  };
-
-  // Provide both 'response' and 'botReply' so any frontend consumer resolves the answer
-  res.json({
-    success: true,
-    response: replyText,
-    botReply: replyText,
-    text: replyText,
-    userQuery: query,
-    flow: targetFlow.id,
-    model: modelUsed,
-    latencyMs: metrics.totalLatencyMs,
-    timestamp: Date.now(),
-    metrics,
-    llmUserAggregator: {
-      status: 'turn_sealed_and_dispatched',
-      triggerFrame: 'UserStoppedSpeakingFrame',
-      userSpeaking: false,
-      contextCommitted: true,
-      model: modelUsed,
-      timestamp: Date.now(),
-    },
-    framesEmitted: [
-      { type: 'UserStartedSpeakingFrame', timestamp: Date.now() - 550 },
-      { type: 'TranscriptionFrame', text: query, isFinal: true, timestamp: Date.now() - 380 },
-      { type: 'UserStoppedSpeakingFrame', timestamp: Date.now() - 320 },
-      { type: 'LLMUserAggregator', status: 'turn_sealed', timestamp: Date.now() - 300 },
-      { type: 'OpenAILLMContextFrame', timestamp: Date.now() - 280 },
-      { type: 'LLMFullResponseStartFrame', timestamp: Date.now() - 150 },
-      { type: 'TextFrame', text: replyText, timestamp: Date.now() - 100 },
-      { type: 'TTSStartedFrame', timestamp: Date.now() - 50 },
-      { type: 'TTSAudioFrame', sampleRate: 24000, channels: 1, timestamp: Date.now() },
-      { type: 'TTSStoppedFrame', timestamp: Date.now() }
-    ]
-  });
-});
-
-// Real-Time Pipeline Diagnostic Triage API
-app.get('/api/pipeline/diagnose', (_req, res) => {
-  res.json({
-    timestamp: new Date().toISOString(),
-    overallStatus: 'healthy',
-    layers: [
-      {
-        layer: 'client_audio_ingress',
-        name: 'Browser Audio Ingress & Permissions',
-        status: 'pass',
-        sampleRatesSupported: [16000, 48000],
-        recommendedRateHz: 16000,
-        autoplayRequirement: 'User gesture required to unlock AudioContext on initial load',
-      },
-      {
-        layer: 'vad_turn_boundary',
-        name: 'Voice Activity Detection (Silero VAD)',
-        status: 'pass',
-        calibratedConfig: {
-          confidence: 0.4,
-          startSecs: 0.15,
-          stopSecs: 0.7,
-          minVolume: 0.04,
-        },
-        description: 'Emits UserStartedSpeakingFrame and UserStoppedSpeakingFrame to prevent turn deadlock',
-      },
-      {
-        layer: 'stt_transcription',
-        name: 'Speech-to-Text (STT Engine)',
-        status: 'pass',
-        activeProvider: 'Deepgram Nova-2 / WebSpeech Fallback',
-        averageLatencyMs: 110,
-        resamplerActive: true,
-      },
-      {
-        layer: 'llm_orchestration',
-        name: 'LLM Turn Aggregator & Model Synthesis',
-        status: 'pass',
-        modelProvider: 'Google Gemini 2.5/3.5 Flash',
-        geminiApiKeyConfigured: !!process.env.GEMINI_API_KEY,
-        turnAggregatorTimeoutMs: 1500,
-      },
-      {
-        layer: 'tts_audio_egress',
-        name: 'Text-to-Speech & Client Playback',
-        status: 'pass',
-        engine: 'Web Speech Synthesis / Web Audio Chime Oscillator / ElevenLabs',
-        autoplayBypassHandler: 'window.speechSynthesis.resume() + AudioContext touch-unlock listener',
-      }
-    ]
-  });
-});
+export { app };
 
 // Vite middleware & production static serving
 async function startServer() {
+  const server = http.createServer(app);
+  setupVoiceWebSocket(server);
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true, allowedHosts: true },
+      server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -633,9 +454,12 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🎙️ Pyvex Voice / Pipecat Server running on http://0.0.0.0:${PORT}`);
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🎙️ Pyvex Voice Server running on http://0.0.0.0:${PORT}`);
   });
 }
 
-startServer();
+// Only start listening when executed directly, not when imported in test runner
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}

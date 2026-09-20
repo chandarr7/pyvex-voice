@@ -1,12 +1,12 @@
 {
-  "projectId": "tilted-ai-receptionist-prod-01",
-  "appId": "1:286858599450:web:d1535e0e1fbebc066585a3",
-  "apiKey": "AIzaSyAayLIlFIqUiCh_hG-Ko_ssQ7QiOxY8d1Y",
-  "authDomain": "tilted-ai-receptionist-prod-01.firebaseapp.com",
+  "projectId": "gen-lang-client-0140738589",
+  "appId": "1:585651158263:web:d47f7d39ae70624fb6a7f2",
+  "apiKey": "AIzaSyDast3Om6yMmgCRlAx90AWdlq1WQ05H25I",
+  "authDomain": "gen-lang-client-0140738589.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-pyvexvoice-bf711412-a1b6-4dd0-9d8c-06c8178a8b11",
-  "storageBucket": "tilted-ai-receptionist-prod-01.firebasestorage.app",
-  "messagingSenderId": "286858599450",
+  "storageBucket": "gen-lang-client-0140738589.firebasestorage.app",
+  "messagingSenderId": "585651158263",
   "measurementId": "",
-  "oAuthClientId": "286858599450-ksgdflts0nhfb48ei9dbvc262edqesuo.apps.googleusercontent.com",
+  "oAuthClientId": "585651158263-kvvlgod6l77l62ci8tegr483f3u7h87b.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

@@ -83,7 +83,7 @@ export const Footer: React.FC = () => {
                 <Disc className="w-4 h-4 text-[#845CFF]" />
               </div>
               <span className="text-sm font-bold tracking-tight text-[#F4F2F8] font-sans">
-                Pyvex <span className="text-[#845CFF]">STUDIO</span>
+                Tilted <span className="text-[#845CFF]">STUDIO</span>
               </span>
             </div>
             <p className="text-xs text-[#A4A3B2] leading-relaxed font-sans">
@@ -101,6 +101,7 @@ export const Footer: React.FC = () => {
               Platform & Core
             </span>
             <ul className="space-y-2 text-[#A4A3B2]">
+              <li><a href="#gemini-chat" className="hover:text-[#F4F2F8] transition-colors text-[#D8B4FE] font-medium">Tilted Sales Agent</a></li>
               <li><a href="#platform" className="hover:text-[#F4F2F8] transition-colors">Frame-Based Pipeline</a></li>
               <li><a href="#architecture" className="hover:text-[#F4F2F8] transition-colors">Telephony SIP Trunking</a></li>
               <li><a href="#architecture" className="hover:text-[#F4F2F8] transition-colors">Silero VAD Barge-In</a></li>
@@ -137,7 +138,7 @@ export const Footer: React.FC = () => {
 
         <div className="pt-6 border-t border-[#292B3A] flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-[#666879]">
           <div>
-            © {new Date().getFullYear()} Pyvex STUDIO Inc. All rights reserved.
+            © {new Date().getFullYear()} Tilted STUDIO Inc. All rights reserved.
           </div>
           <div className="flex items-center gap-6 text-[#A4A3B2]">
             <span>Core: Pipecat Engine 1.4</span>

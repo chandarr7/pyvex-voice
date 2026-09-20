@@ -21,7 +21,7 @@ export const GeminiFloatingChat: React.FC = () => {
             <div className="sm:hidden flex items-center justify-between p-3 bg-[#12141A] border-b border-[#292B3A] text-white">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-[#845CFF]" />
-                <span className="text-xs font-mono font-bold">Gemini Conversational Agent</span>
+                <span className="text-xs font-mono font-bold">Tilted Conversational Agent</span>
               </div>
               <button
                 onClick={() => setIsOpen(false)}
@@ -44,7 +44,7 @@ export const GeminiFloatingChat: React.FC = () => {
         style={{
           background: 'linear-gradient(135deg, #7047FF, #9655FF)',
         }}
-        aria-label="Toggle Gemini Chatbot"
+        aria-label="Toggle Tilted Agent Chatbot"
       >
         {isOpen ? (
           <>
@@ -57,7 +57,7 @@ export const GeminiFloatingChat: React.FC = () => {
               <Bot className="w-4 h-4" />
               <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#20E99A] animate-ping" />
             </div>
-            <span>Chat with Gemini</span>
+            <span>Chat with Tilted Agent</span>
             <span className="hidden sm:inline px-1.5 py-0.5 rounded bg-black/30 text-[9px] text-[#24D8ED] font-mono uppercase tracking-wider border border-white/10">
               Multi-turn
             </span>

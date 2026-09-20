@@ -96,8 +96,17 @@ export interface UserProfile {
   displayName?: string;
   photoURL?: string;
   role: 'engineer' | 'operator' | 'admin';
+  isDemo?: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface PersonaVoiceTuning {
+  pitch: number;
+  speed: number;
+  accent: string;
+  voiceId: string;
+  gender: 'female' | 'male';
 }
 
 export interface SavedVoiceAgent {
@@ -111,6 +120,11 @@ export interface SavedVoiceAgent {
   llm: string;
   tts: string;
   flow?: string;
+  pitch?: number;
+  speed?: number;
+  accent?: string;
+  voiceId?: string;
+  gender?: 'female' | 'male';
   latencyTargetMs?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -137,4 +151,6 @@ export interface SavedCallSession {
 }
 
 export type CloudSyncStatus = 'idle' | 'syncing' | 'saved' | 'error';
+
+export type FluidMeshStyle = 'pulse' | 'flow' | 'geometric';
 
