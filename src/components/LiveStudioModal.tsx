@@ -60,7 +60,7 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
     transport: 'smallwebrtc',
     stt: 'deepgram',
     llm: 'gemini-flash',
-    tts: 'elevenlabs',
+    tts: 'elevenlabs-turbo',
     vad: 'silero',
     flow: initialFlowId || 'customer_support',
   });
@@ -167,9 +167,15 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
       addEvent('TTSStartedFrame', 'tts', 'Synthesizing voice egress audio stream', 'info');
 
       try {
+        const voiceId = pipelineConfig.tts?.includes('flash')
+          ? 'hpp4J3VqNfWAUOO0d1Us'
+          : pipelineConfig.tts?.includes('multilingual')
+          ? 'cgSgspJ2msm6clMCkdW9'
+          : 'EXAVITQu4vr4xnSDxMaL';
+
         await playVoiceAudio({
           text,
-          elevenLabsVoiceId: '21m00Tcm4TlvDq8ikWAM',
+          elevenLabsVoiceId: voiceId,
           gender: 'female',
           pitch: 1.0,
           rate: 1.0,

@@ -118,6 +118,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
     await playVoiceAudio({
       text: activeVoice.sampleScript,
       elevenLabsVoiceId: activeVoice.elevenLabsId,
+      previewUrl: activeVoice.previewUrl,
       apiKey: apiKey.trim(),
       gender: selectedGender,
       pitch: activeVoice.pitch,

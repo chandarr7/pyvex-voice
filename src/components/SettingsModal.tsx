@@ -155,7 +155,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div>
               <label className="text-[11px] font-mono tracking-[0.2em] uppercase text-white/40 mb-2 flex items-center gap-2">
                 <Volume2 className="w-3.5 h-3.5 text-white/60" />
-                Speech Synthesis Voice
+                ElevenLabs Voice Engine
               </label>
               <select
                 value={currentConfig.tts}
@@ -164,7 +164,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 {services?.tts?.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.name} (~{t.latency})
+                    {t.name} ({t.voice})
                   </option>
                 ))}
               </select>

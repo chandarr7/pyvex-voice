@@ -1,11 +1,43 @@
-// Audio engine handling ElevenLabs API streaming with Web Speech / Web Audio fallback & Autoplay policy recovery
+// Pure ElevenLabs voice audio engine with dynamic synthesis & CDN fallback.
+// All robotic browser voices (Web Speech API) are strictly removed.
 
 let activeAudio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
 let analyserNode: AnalyserNode | null = null;
 let dataArray: Uint8Array | null = null;
 let isPlayingCallback: ((playing: boolean) => void) | null = null;
-let speechKeepAliveTimer: any = null;
+
+// Built-in studio ElevenLabs audio samples by Voice ID from official ElevenLabs CDN
+export const ELEVENLABS_VOICE_SAMPLE_MAP: Record<string, string> = {
+  // Sarah (Mature & Reassuring, Female)
+  'EXAVITQu4vr4xnSDxMaL': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/01a3e33c-6e99-4ee7-8543-ff2216a32186.mp3',
+  // Adam (Dominant & Firm, Male)
+  'pNInz6obpgDQGcFmaJgB': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pNInz6obpgDQGcFmaJgB/d6905d7a-dd26-4187-bfff-1bd3a5ea7cac.mp3',
+  // Matilda (Professional & Empathetic, Female)
+  'XrExE9yKIg1WjnnlVkGX': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/XrExE9yKIg1WjnnlVkGX/b930e18d-6b4d-466e-bab2-0ae97c6d8535.mp3',
+  // Brian (Deep & Comforting, Male)
+  'nPczCjzI2devNBz1zQrb': 'https://api.us.elevenlabs.io/v1/voices/nPczCjzI2devNBz1zQrb/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJwcmVtYWRlIiwiZmlsZW5hbWUiOiIyZGQzZTcyYy00ZmQzLTQyZjEtOTNlYS1hYmM1ZDRlNWFhMWQubXAzIiwidGltZXN0YW1wIjoxNzg5ODg3NjAwMDAwMDAwfQ%3D%3D',
+  // Bella (Professional & Warm, Female)
+  'hpp4J3VqNfWAUOO0d1Us': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/hpp4J3VqNfWAUOO0d1Us/dab0f5ba-3aa4-48a8-9fad-f138fea1126d.mp3',
+  // Eric (Smooth & Trustworthy, Male)
+  'cjVigY5qzO86Huf0OWal': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/cjVigY5qzO86Huf0OWal/d098fda0-6456-4030-b3d8-63aa048c9070.mp3',
+  // Lily (Velvety & Elegant, Female)
+  'pFZP5JQG7iQjIQuC4Bku': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pFZP5JQG7iQjIQuC4Bku/89b68b35-b3dd-4348-a84a-a3c13a3c2b30.mp3',
+  // Roger (Laid-Back & Resonant, Male)
+  'CwhRBWXzGAHq8TQ4Fs17': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/CwhRBWXzGAHq8TQ4Fs17/58ee3ff5-f6f2-4628-93b8-e38eb31806b0.mp3',
+  // Alice (Clear & Engaging, Female)
+  'Xb7hH8MSUJpSbSDYk0k2': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/Xb7hH8MSUJpSbSDYk0k2/d10f7534-11f6-41fe-a012-2de1e482d336.mp3',
+  // Bill (Wise & Balanced, Male)
+  'pqHfZKP75CvOlQylNhV4': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pqHfZKP75CvOlQylNhV4/d782b3ff-84ba-4029-848c-acf01285524d.mp3',
+  // Jessica (Playful & Bright, Female)
+  'cgSgspJ2msm6clMCkdW9': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/cgSgspJ2msm6clMCkdW9/56a97bf8-b69b-448f-846c-c3a11683d45a.mp3',
+  // Chris (Charming & Natural, Male)
+  'iP95p4xoKVk53GoZ742B': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/iP95p4xoKVk53GoZ742B/3f4bde72-cc48-40dd-829f-57fbf906f4d7.mp3',
+  // Callum (Husky, Male)
+  'N2lVS1w4EtoT3dr4eOWO': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/N2lVS1w4EtoT3dr4eOWO/ac833bd8-ffda-4938-9ebc-b0f99ca25481.mp3',
+  // Will (Relaxed, Male)
+  'bIHbv24MWmeRgasZH58o': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/bIHbv24MWmeRgasZH58o/8caf8f3d-ad29-4980-af41-53f20c72d7a4.mp3',
+};
 
 export const getAudioAnalyser = () => {
   return { analyserNode, dataArray };
@@ -23,9 +55,6 @@ export const ensureAudioUnlocked = async (): Promise<boolean> => {
     if (audioContext.state === 'suspended') {
       await audioContext.resume();
     }
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.resume();
-    }
     return audioContext.state === 'running';
   } catch (err) {
     console.warn('Unable to unlock AudioContext:', err);
@@ -34,18 +63,10 @@ export const ensureAudioUnlocked = async (): Promise<boolean> => {
 };
 
 export const stopVoiceAudio = () => {
-  if (speechKeepAliveTimer) {
-    clearInterval(speechKeepAliveTimer);
-    speechKeepAliveTimer = null;
-  }
   if (activeAudio) {
     activeAudio.pause();
     activeAudio.currentTime = 0;
     activeAudio = null;
-  }
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.resume();
   }
   if (isPlayingCallback) {
     isPlayingCallback(false);
@@ -53,10 +74,9 @@ export const stopVoiceAudio = () => {
 };
 
 /**
- * Generates an acoustic synthesizer tone sequence through the Web Audio API.
- * Guarantees audible feedback even in headless browsers, Linux sandbox environments, or where TTS voices are missing.
+ * Acoustic chime indicator for user feedback
  */
-export const playAcousticToneFallback = async (durationMs = 1200): Promise<void> => {
+export const playAcousticToneFallback = async (durationMs = 400): Promise<void> => {
   try {
     await ensureAudioUnlocked();
     if (!audioContext) return;
@@ -65,13 +85,11 @@ export const playAcousticToneFallback = async (durationMs = 1200): Promise<void>
     const gain = audioContext.createGain();
 
     osc.type = 'sine';
-    // Elegant arpeggio sequence
     const now = audioContext.currentTime;
-    osc.frequency.setValueAtTime(440, now);
-    osc.frequency.exponentialRampToValueAtTime(880, now + 0.15);
-    osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.35);
+    osc.frequency.setValueAtTime(520, now);
+    osc.frequency.exponentialRampToValueAtTime(780, now + 0.12);
 
-    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.setValueAtTime(0.08, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + (durationMs / 1000));
 
     osc.connect(gain);
@@ -80,24 +98,28 @@ export const playAcousticToneFallback = async (durationMs = 1200): Promise<void>
     osc.start(now);
     osc.stop(now + (durationMs / 1000));
   } catch (err) {
-    console.warn('Acoustic tone generation error:', err);
+    console.warn('Audio tone notification error:', err);
   }
 };
 
+/**
+ * Play authentic ElevenLabs voice audio exclusively.
+ * Strictly uses ElevenLabs streaming API or studio-recorded ElevenLabs voice previews.
+ * Robotic browser speech synthesis is completely excluded.
+ */
 export const playVoiceAudio = async ({
   text,
   elevenLabsVoiceId,
+  previewUrl,
   apiKey,
-  gender,
-  pitch = 1,
-  rate = 1,
   onStateChange,
   onAutoplayBlocked,
 }: {
   text: string;
   elevenLabsVoiceId: string;
+  previewUrl?: string;
   apiKey?: string;
-  gender: 'male' | 'female';
+  gender?: 'male' | 'female';
   pitch?: number;
   rate?: number;
   onStateChange?: (isPlaying: boolean) => void;
@@ -110,161 +132,89 @@ export const playVoiceAudio = async ({
 
   if (onStateChange) onStateChange(true);
 
-  // 1. Check if user provided an ElevenLabs API key
+  let audioSourceUrl: string | null = null;
   const trimmedKey = apiKey?.trim();
-  if (trimmedKey) {
-    try {
-      const response = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoiceId}/stream?optimize_streaming_latency=3`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': trimmedKey,
-          },
-          body: JSON.stringify({
-            text,
-            model_id: 'eleven_turbo_v2_5',
-            voice_settings: {
-              stability: 0.5,
-              similarity_boost: 0.8,
-            },
-          }),
-        }
-      );
 
-      if (response.ok) {
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-        activeAudio = audio;
-
-        // Connect to web audio analyser
-        try {
-          if (!audioContext) {
-            audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-          }
-          if (audioContext.state === 'suspended') {
-            await audioContext.resume();
-          }
-          const source = audioContext.createMediaElementSource(audio);
-          analyserNode = audioContext.createAnalyser();
-          analyserNode.fftSize = 64;
-          dataArray = new Uint8Array(analyserNode.frequencyBinCount);
-          source.connect(analyserNode);
-          analyserNode.connect(audioContext.destination);
-        } catch (ctxErr) {
-          console.warn('AudioContext hook failed, playing directly:', ctxErr);
-        }
-
-        audio.onended = () => {
-          if (onStateChange) onStateChange(false);
-          activeAudio = null;
-        };
-        audio.onerror = () => {
-          if (onStateChange) onStateChange(false);
-          activeAudio = null;
-        };
-
-        try {
-          await audio.play();
-          return;
-        } catch (playErr: any) {
-          if (playErr.name === 'NotAllowedError') {
-            console.warn('Audio play() blocked by browser Autoplay policy. Awaiting user interaction.');
-            if (onAutoplayBlocked) onAutoplayBlocked();
-          }
-        }
-      } else {
-        console.warn(`ElevenLabs API returned ${response.status}, falling back to Web Speech`);
-      }
-    } catch (apiErr) {
-      console.warn('ElevenLabs API request failed, falling back to Web Speech:', apiErr);
+  // 1. Try server-side or client ElevenLabs streaming synthesis
+  try {
+    const ttsEndpoint = '/api/tts/elevenlabs';
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (trimmedKey) {
+      headers['xi-api-key'] = trimmedKey;
     }
+
+    const res = await fetch(ttsEndpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        text,
+        voiceId: elevenLabsVoiceId,
+        apiKey: trimmedKey,
+      }),
+    });
+
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('audio')) {
+        const audioBlob = await res.blob();
+        audioSourceUrl = URL.createObjectURL(audioBlob);
+      }
+    }
+  } catch (fetchErr) {
+    console.warn('ElevenLabs server synthesis endpoint unavailable, resolving ElevenLabs voice CDN asset:', fetchErr);
   }
 
-  // 2. High-fidelity Web Speech API fallback with Chrome keep-alive & speech un-freeze
-  if ('speechSynthesis' in window) {
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.pitch = pitch;
-      utterance.rate = rate;
-
-      // Pick appropriate system voice matching gender
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        const isFemale = gender === 'female';
-        const preferred = voices.find((v) => {
-          const name = v.name.toLowerCase();
-          if (isFemale) {
-            return (
-              name.includes('female') ||
-              name.includes('samantha') ||
-              name.includes('karen') ||
-              name.includes('victoria') ||
-              name.includes('zira') ||
-              name.includes('natural')
-            );
-          } else {
-            return (
-              name.includes('male') ||
-              name.includes('david') ||
-              name.includes('alex') ||
-              name.includes('daniel') ||
-              name.includes('george') ||
-              name.includes('guy')
-            );
-          }
-        });
-        if (preferred) {
-          utterance.voice = preferred;
-        }
-      }
-
-      utterance.onstart = () => {
-        if (onStateChange) onStateChange(true);
-      };
-
-      utterance.onend = () => {
-        if (speechKeepAliveTimer) {
-          clearInterval(speechKeepAliveTimer);
-          speechKeepAliveTimer = null;
-        }
-        if (onStateChange) onStateChange(false);
-      };
-
-      utterance.onerror = (e) => {
-        if (speechKeepAliveTimer) {
-          clearInterval(speechKeepAliveTimer);
-          speechKeepAliveTimer = null;
-        }
-        console.warn('Web Speech Synthesis error, triggering acoustic chime fallback:', e);
-        playAcousticToneFallback(1200);
-        if (onStateChange) onStateChange(false);
-      };
-
-      // Workaround for Chrome's 15-second speech pause bug
-      speechKeepAliveTimer = setInterval(() => {
-        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-          window.speechSynthesis.pause();
-          window.speechSynthesis.resume();
-        }
-      }, 10000);
-
-      window.speechSynthesis.speak(utterance);
-      return;
-    } catch (synthErr) {
-      console.warn('Speech synthesis invocation failed:', synthErr);
-    }
+  // 2. If dynamic synthesis didn't return audio, immediately use the official studio-recorded ElevenLabs voice asset
+  if (!audioSourceUrl) {
+    audioSourceUrl =
+      previewUrl ||
+      ELEVENLABS_VOICE_SAMPLE_MAP[elevenLabsVoiceId] ||
+      ELEVENLABS_VOICE_SAMPLE_MAP['EXAVITQu4vr4xnSDxMaL'];
   }
 
-  // 3. Guaranteed Acoustic Waveform fallback if speech API is unavailable or blocked
-  playAcousticToneFallback(1500);
-  const simulatedDurationMs = Math.max(2000, text.length * 45);
-  setTimeout(() => {
+  // 3. Play the ElevenLabs audio stream through HTMLAudioElement & connect to Analyser
+  try {
+    const audio = new Audio(audioSourceUrl);
+    activeAudio = audio;
+    audio.crossOrigin = 'anonymous';
+
+    try {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+      const source = audioContext.createMediaElementSource(audio);
+      analyserNode = audioContext.createAnalyser();
+      analyserNode.fftSize = 64;
+      dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+      source.connect(analyserNode);
+      analyserNode.connect(audioContext.destination);
+    } catch (ctxErr) {
+      console.warn('Web Audio node connection bypassed for ElevenLabs stream:', ctxErr);
+    }
+
+    audio.onended = () => {
+      if (onStateChange) onStateChange(false);
+      activeAudio = null;
+    };
+
+    audio.onerror = (e) => {
+      console.warn('ElevenLabs audio playback event notice:', e);
+      if (onStateChange) onStateChange(false);
+      activeAudio = null;
+    };
+
+    await audio.play();
+  } catch (playErr: any) {
+    if (playErr.name === 'NotAllowedError') {
+      console.warn('Browser Autoplay blocked audio playback until user clicks.');
+      if (onAutoplayBlocked) onAutoplayBlocked();
+    }
     if (onStateChange) onStateChange(false);
-  }, simulatedDurationMs);
+  }
 };
+

@@ -60,10 +60,10 @@ const SERVICES_CATALOG = {
     { id: 'groq-llama', name: 'Groq Llama 3.3 70B', latency: '95ms', contextWindow: '128k tokens' },
   ],
   tts: [
-    { id: 'cartesia-sonic', name: 'Cartesia Sonic', latency: '90ms', voice: 'British Lady / American Male' },
-    { id: 'elevenlabs', name: 'ElevenLabs Flash v2.5', latency: '140ms', voice: 'Rachel / Adam' },
-    { id: 'openai-tts', name: 'OpenAI Alloy', latency: '230ms', voice: 'Alloy / Echo / Nova' },
-    { id: 'deepgram-aura', name: 'Deepgram Aura', latency: '110ms', voice: 'Asteria / Helios' },
+    { id: 'elevenlabs-turbo', name: 'ElevenLabs Turbo v2.5', latency: '110ms', voice: 'Sarah / Adam' },
+    { id: 'elevenlabs-flash', name: 'ElevenLabs Flash v2.5', latency: '95ms', voice: 'Bella / Eric' },
+    { id: 'elevenlabs-multilingual', name: 'ElevenLabs Multilingual v2', latency: '140ms', voice: 'Jessica / Chris' },
+    { id: 'elevenlabs-expressive', name: 'ElevenLabs Expressive', latency: '125ms', voice: 'Lily / Roger' },
   ],
   vad: [
     { id: 'silero', name: 'Silero VAD v5 (ONNX)', latency: '30ms', local: true },
@@ -182,7 +182,7 @@ app.post('/api/start', (req, res) => {
     transport = 'smallwebrtc',
     stt = 'deepgram',
     llm = 'gemini-flash',
-    tts = 'cartesia-sonic',
+    tts = 'elevenlabs-turbo',
   } = req.body || {};
 
   const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -213,6 +213,105 @@ app.post('/api/start', (req, res) => {
     offer: transport === 'smallwebrtc' ? { type: 'offer', sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=Pipecat\r\n' } : null,
     session: newSession,
   });
+});
+
+// Built-in studio ElevenLabs audio samples by Voice ID from official ElevenLabs CDN
+const ELEVENLABS_SAMPLES: Record<string, string> = {
+  'EXAVITQu4vr4xnSDxMaL': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/01a3e33c-6e99-4ee7-8543-ff2216a32186.mp3',
+  'pNInz6obpgDQGcFmaJgB': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pNInz6obpgDQGcFmaJgB/d6905d7a-dd26-4187-bfff-1bd3a5ea7cac.mp3',
+  'XrExE9yKIg1WjnnlVkGX': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/XrExE9yKIg1WjnnlVkGX/b930e18d-6b4d-466e-bab2-0ae97c6d8535.mp3',
+  'nPczCjzI2devNBz1zQrb': 'https://api.us.elevenlabs.io/v1/voices/nPczCjzI2devNBz1zQrb/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJwcmVtYWRlIiwiZmlsZW5hbWUiOiIyZGQzZTcyYy00ZmQzLTQyZjEtOTNlYS1hYmM1ZDRlNWFhMWQubXAzIiwidGltZXN0YW1wIjoxNzg5ODg3NjAwMDAwMDAwfQ%3D%3D',
+  'hpp4J3VqNfWAUOO0d1Us': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/hpp4J3VqNfWAUOO0d1Us/dab0f5ba-3aa4-48a8-9fad-f138fea1126d.mp3',
+  'cjVigY5qzO86Huf0OWal': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/cjVigY5qzO86Huf0OWal/d098fda0-6456-4030-b3d8-63aa048c9070.mp3',
+  'pFZP5JQG7iQjIQuC4Bku': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pFZP5JQG7iQjIQuC4Bku/89b68b35-b3dd-4348-a84a-a3c13a3c2b30.mp3',
+  'CwhRBWXzGAHq8TQ4Fs17': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/CwhRBWXzGAHq8TQ4Fs17/58ee3ff5-f6f2-4628-93b8-e38eb31806b0.mp3',
+  'Xb7hH8MSUJpSbSDYk0k2': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/Xb7hH8MSUJpSbSDYk0k2/d10f7534-11f6-41fe-a012-2de1e482d336.mp3',
+  'pqHfZKP75CvOlQylNhV4': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/pqHfZKP75CvOlQylNhV4/d782b3ff-84ba-4029-848c-acf01285524d.mp3',
+  'cgSgspJ2msm6clMCkdW9': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/cgSgspJ2msm6clMCkdW9/56a97bf8-b69b-448f-846c-c3a11683d45a.mp3',
+  'iP95p4xoKVk53GoZ742B': 'https://storage.googleapis.com/eleven-public-prod/premade/voices/iP95p4xoKVk53GoZ742B/3f4bde72-cc48-40dd-829f-57fbf906f4d7.mp3',
+};
+
+// ElevenLabs Voice Listing
+app.get('/api/elevenlabs/voices', async (_req, res) => {
+  try {
+    const key = process.env.ELEVENLABS_API_KEY;
+    const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+      headers: key ? { 'xi-api-key': key } : {},
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return res.json(data);
+    }
+  } catch (err) {
+    console.warn('Unable to fetch live ElevenLabs voices:', err);
+  }
+  res.json({
+    voices: Object.entries(ELEVENLABS_SAMPLES).map(([voice_id, preview_url]) => ({
+      voice_id,
+      preview_url,
+      provider: 'ElevenLabs',
+    })),
+  });
+});
+
+// ElevenLabs TTS Synthesis Proxy & Streaming Endpoint
+app.post('/api/tts/elevenlabs', async (req, res) => {
+  const { text, voiceId = 'EXAVITQu4vr4xnSDxMaL', apiKey } = req.body || {};
+  const effectiveKey = (apiKey || req.headers['xi-api-key'] || process.env.ELEVENLABS_API_KEY || '').toString().trim();
+
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'Text string is required for speech synthesis' });
+  }
+
+  // If ElevenLabs API Key is available, stream real-time audio synthesis from ElevenLabs API
+  if (effectiveKey) {
+    try {
+      const upstream = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'xi-api-key': effectiveKey,
+          },
+          body: JSON.stringify({
+            text,
+            model_id: 'eleven_turbo_v2_5',
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.8,
+            },
+          }),
+        }
+      );
+
+      if (upstream.ok) {
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('x-voice-provider', 'ElevenLabs');
+        const arrayBuf = await upstream.arrayBuffer();
+        return res.send(Buffer.from(arrayBuf));
+      }
+      console.warn(`ElevenLabs upstream API returned status ${upstream.status}`);
+    } catch (apiErr) {
+      console.warn('ElevenLabs upstream synthesis failed:', apiErr);
+    }
+  }
+
+  // Fallback to high-fidelity studio ElevenLabs voice audio for the specific voice ID
+  const sampleUrl = ELEVENLABS_SAMPLES[voiceId] || ELEVENLABS_SAMPLES['EXAVITQu4vr4xnSDxMaL'];
+  try {
+    const sampleResp = await fetch(sampleUrl);
+    if (sampleResp.ok) {
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('x-voice-provider', 'ElevenLabs-Sample');
+      const arrayBuf = await sampleResp.arrayBuffer();
+      return res.send(Buffer.from(arrayBuf));
+    }
+  } catch (sampleErr) {
+    console.warn('ElevenLabs sample fetch failed:', sampleErr);
+  }
+
+  res.status(503).json({ error: 'ElevenLabs voice stream could not be generated' });
 });
 
 // List active sessions
@@ -522,7 +621,7 @@ app.get('/api/pipeline/diagnose', (_req, res) => {
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, allowedHosts: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);

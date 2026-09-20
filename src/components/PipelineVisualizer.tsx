@@ -53,7 +53,11 @@ export const PipelineVisualizer: React.FC<PipelineVisualizerProps> = ({
     {
       step: '05',
       name: 'TTS Egress',
-      provider: config.tts === 'cartesia-sonic' ? 'Cartesia Sonic' : config.tts === 'elevenlabs' ? 'ElevenLabs v2.5' : 'OpenAI Alloy',
+      provider: config.tts?.includes('flash')
+        ? 'ElevenLabs Flash v2.5'
+        : config.tts?.includes('multilingual')
+        ? 'ElevenLabs Multilingual v2'
+        : 'ElevenLabs Turbo v2.5',
       spec: metrics ? `${metrics.ttsDurationMs}ms` : '95ms',
       active: isSpeaking,
       indicator: 'Playback',
