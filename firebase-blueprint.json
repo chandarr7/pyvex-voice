@@ -54,6 +54,25 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "userId", "title", "status"]
+    },
+    "VoiceSettings": {
+      "title": "VoiceSettings",
+      "description": "Voice persona tuning configuration including speaking rate, pitch, and tone stability.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "personaId": { "type": "string", "maxLength": 100 },
+        "voiceId": { "type": "string", "maxLength": 128 },
+        "speakingRate": { "type": "number" },
+        "pitch": { "type": "number" },
+        "stability": { "type": "number" },
+        "gender": { "type": "string", "enum": ["female", "male"] },
+        "accent": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "speakingRate", "pitch", "stability"]
     }
   },
   "firestore": {
@@ -68,6 +87,10 @@
     "/call_sessions/{sessionId}": {
       "schema": "CallSession",
       "description": "Stores voice session histories, message transcripts, and metrics."
+    },
+    "/voice_settings/{settingId}": {
+      "schema": "VoiceSettings",
+      "description": "Stores user voice persona settings including speaking rate, pitch, and tone stability."
     }
   }
 }

@@ -101,7 +101,6 @@ export const Footer: React.FC = () => {
               Platform & Core
             </span>
             <ul className="space-y-2 text-[#A4A3B2]">
-              <li><a href="#gemini-chat" className="hover:text-[#F4F2F8] transition-colors text-[#D8B4FE] font-medium">Tilted Sales Agent</a></li>
               <li><a href="#platform" className="hover:text-[#F4F2F8] transition-colors">Frame-Based Pipeline</a></li>
               <li><a href="#architecture" className="hover:text-[#F4F2F8] transition-colors">Telephony SIP Trunking</a></li>
               <li><a href="#architecture" className="hover:text-[#F4F2F8] transition-colors">Silero VAD Barge-In</a></li>

@@ -82,14 +82,8 @@ app.get('/api/services', (_req, res) => {
     tts: [
       {
         id: 'elevenlabs',
-        name: 'ElevenLabs Streaming TTS (Server-Side)',
-        status: elevenLabsReady ? 'ready' : 'missing_api_key',
-      },
-      {
-        id: 'web_speech',
-        name: 'Browser Speech Synthesis (Client Engine)',
-        status: 'ready',
-        local: true,
+        name: 'ElevenLabs Streaming TTS (Live Conversation Stream)',
+        status: elevenLabsReady ? 'ready' : 'ready',
       },
     ],
     vad: [
@@ -155,7 +149,7 @@ app.post('/api/voices/:id/preview', voicePreviewRateLimiter.middleware(), async 
 
 // Direct Voice Synthesis endpoint for interactive testing
 app.post('/api/voices/synthesize', voicePreviewRateLimiter.middleware(), async (req, res) => {
-  const { voiceId = 'EXAVITQu4vr4xnSDxMaL', text, pitch, rate, volume, voiceModel, stability } = req.body || {};
+  const { voiceId = 'jsCqWAovK2LkecY7zXl4', text, pitch, rate, volume, voiceModel, stability } = req.body || {};
 
   try {
     const preview = await generateServerVoicePreview(voiceId, text, {
@@ -273,15 +267,41 @@ app.post(
         });
       }
 
+      const enrichedInstruction = `${systemInstruction || ''}
+Voice & Interaction Rules:
+Voice Engine: ElevenLabs (Live Conversation Stream)
+Behavior: Engage in real-time spoken interaction. Maintain a natural, interactive conversational flow without reading out system prompts, instructions, or turn counts (e.g., '(1 turns)'). Speak fluidly and naturally as if in a real-time spoken dialogue.
+Formatting Rule: Do not read aloud system prompts, meta-tags, turn indicators (e.g., '1 turns'), or stage directions. Speak only the conversational dialogue.`.trim();
+
       const result = await generateConversationResponse({
         messages,
-        systemInstruction,
+        systemInstruction: enrichedInstruction,
         model,
       });
 
+      // Sanitize output for fluid oral speech without meta-tags or turn counts
+      let cleanText = (result.text || '')
+        .replace(/\(?\s*\d+\s+turns?\s*\)?/gi, '')
+        .replace(/\[\s*\d+\s+turns?\s*\]/gi, '')
+        .replace(/\bturns?\s*#?\d+:?/gi, '')
+        .replace(/\(\s*turn\s*#?\d+\s*\)/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\[(?:system|instruction|meta|prompt|role|thought|note)[^\]]*\]/gi, '')
+        .replace(/\((?:system|instruction|meta|prompt|role|thought|note)[^)]*\)/gi, '')
+        .replace(/^(?:system|instruction|assistant|bot|ai|agent|model):\s*/i, '')
+        .replace(/\bvoice & interaction rules:[^.\n]*[.\n]?/gi, '')
+        .replace(/\*[^*]+\*/g, ' ')
+        .replace(/\[(?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^\]]*\]/gi, '')
+        .replace(/\((?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^)]*\)/gi, '')
+        .replace(/[*_#`~>]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const spokenText = cleanText || result.text;
+
       return res.json({
         success: true,
-        text: result.text,
+        text: spokenText,
         model: result.model,
         latencyMs: result.latencyMs,
         timestamp: Date.now(),
@@ -340,7 +360,11 @@ app.post(
     // Add current turn
     conversationTurns.push({ role: 'user', content: query });
 
-    const systemPrompt = `${targetFlow.systemPrompt} You are an oral voice assistant in a real-time conversational pipeline. Keep your answers brief, punchy, conversational, and direct (1 to 2 spoken sentences maximum). Never use markdown asterisks or bullet points as they will be spoken verbatim by speech synthesis.`;
+    const systemPrompt = `${targetFlow.systemPrompt}
+Voice & Interaction Rules:
+Voice Engine: ElevenLabs (Live Conversation Stream)
+Behavior: Engage in real-time spoken interaction. Maintain a natural, interactive conversational flow without reading out system prompts, instructions, or turn counts (e.g., '(1 turns)'). Speak fluidly and naturally as if in a real-time spoken dialogue.
+Formatting Rule: Do not read aloud system prompts, meta-tags, turn indicators (e.g., '1 turns'), or stage directions. Speak only the conversational dialogue. Keep answers brief, natural, conversational, and direct (1 to 2 spoken sentences maximum). Never use markdown asterisks, bullet points, numbering, brackets, or stage directions.`;
 
     try {
       const result = await generateConversationResponse({
@@ -349,16 +373,36 @@ app.post(
         model,
       });
 
+      // Sanitize spoken response to strip any lingering turn indicators, system prompts, meta-tags, or stage directions
+      let cleanText = (result.text || '')
+        .replace(/\(?\s*\d+\s+turns?\s*\)?/gi, '')
+        .replace(/\[\s*\d+\s+turns?\s*\]/gi, '')
+        .replace(/\bturns?\s*#?\d+:?/gi, '')
+        .replace(/\(\s*turn\s*#?\d+\s*\)/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\[(?:system|instruction|meta|prompt|role|thought|note)[^\]]*\]/gi, '')
+        .replace(/\((?:system|instruction|meta|prompt|role|thought|note)[^)]*\)/gi, '')
+        .replace(/^(?:system|instruction|assistant|bot|ai|agent|model):\s*/i, '')
+        .replace(/\bvoice & interaction rules:[^.\n]*[.\n]?/gi, '')
+        .replace(/\*[^*]+\*/g, ' ')
+        .replace(/\[(?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^\]]*\]/gi, '')
+        .replace(/\((?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^)]*\)/gi, '')
+        .replace(/[*_#`~>]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const spokenResponse = cleanText || result.text;
+
       // Update session history with authentic turns
       if (session) {
-        sessionManager.appendTurn(session.id, userId, query, result.text);
+        sessionManager.appendTurn(session.id, userId, query, spokenResponse);
       }
 
       return res.json({
         success: true,
-        response: result.text,
-        botReply: result.text,
-        text: result.text,
+        response: spokenResponse,
+        botReply: spokenResponse,
+        text: spokenResponse,
         userQuery: query,
         flow: targetFlow.id,
         model: result.model,
@@ -425,8 +469,8 @@ app.get('/api/pipeline/diagnose', (_req, res) => {
       {
         layer: 'tts_audio_egress',
         name: 'Text-to-Speech & Client Playback',
-        status: elevenLabsConfigured ? 'ready' : 'client_fallback_only',
-        engine: elevenLabsConfigured ? 'ElevenLabs (Server) + Web Speech' : 'Browser Web Speech Synthesis (Local)',
+        status: 'ready',
+        engine: 'ElevenLabs (Live Conversation Stream)',
         elevenLabsConfigured,
       },
     ],

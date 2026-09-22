@@ -21,7 +21,7 @@ import {
   deleteDoc,
   getDocFromServer,
 } from 'firebase/firestore';
-import { UserProfile, SavedVoiceAgent, SavedCallSession } from '../types';
+import { UserProfile, SavedVoiceAgent, SavedCallSession, VoiceSettingsDoc } from '../types';
 
 export interface AppUser {
   uid: string;
@@ -36,17 +36,21 @@ interface AuthContextType {
   user: AppUser | null;
   userProfile: UserProfile | null;
   loading: boolean;
+  isDemo: boolean;
   authError: string | null;
   isUnauthorizedDomain: boolean;
   unauthorizedHostname: string;
   savedAgents: SavedVoiceAgent[];
   savedSessions: SavedCallSession[];
+  savedVoiceSettings: Record<string, VoiceSettingsDoc>;
   signInWithGoogle: () => Promise<boolean>;
   signInAsDemoUser: () => void;
   signOut: () => Promise<void>;
   saveVoiceAgent: (agent: Omit<SavedVoiceAgent, 'userId' | 'createdAt' | 'updatedAt'>) => Promise<SavedVoiceAgent>;
   deleteVoiceAgent: (agentId: string) => Promise<void>;
   saveCallSession: (session: Omit<SavedCallSession, 'userId' | 'createdAt' | 'updatedAt'>) => Promise<SavedCallSession>;
+  saveVoiceSettings: (settings: Omit<VoiceSettingsDoc, 'userId' | 'createdAt' | 'updatedAt'>) => Promise<VoiceSettingsDoc>;
+  getVoiceSettings: (personaId: string) => Promise<VoiceSettingsDoc | null>;
   refreshUserData: () => Promise<void>;
   clearAuthError: () => void;
 }
@@ -152,6 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [unauthorizedHostname, setUnauthorizedHostname] = useState('');
   const [savedAgents, setSavedAgents] = useState<SavedVoiceAgent[]>([]);
   const [savedSessions, setSavedSessions] = useState<SavedCallSession[]>([]);
+  const [savedVoiceSettings, setSavedVoiceSettings] = useState<Record<string, VoiceSettingsDoc>>({});
   const [isDemo, setIsDemo] = useState(false);
 
   // Validate connection to Firestore on boot
@@ -235,6 +240,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.warn('[Firestore] Sessions query notice:', err);
     }
+
+    // Load user's saved voice settings from Firestore
+    try {
+      const settingsQuery = query(
+        collection(db, 'voice_settings'),
+        where('userId', '==', currentUser.uid)
+      );
+      const settingsSnap = await getDocs(settingsQuery);
+      const settingsMap: Record<string, VoiceSettingsDoc> = {};
+      settingsSnap.forEach((d) => {
+        const data = d.data() as VoiceSettingsDoc;
+        if (data.personaId) {
+          settingsMap[data.personaId] = data;
+        }
+      });
+      setSavedVoiceSettings(settingsMap);
+    } catch (err) {
+      console.warn('[Firestore] Voice settings query notice:', err);
+    }
   };
 
   // Check for existing demo session or Firebase auth state
@@ -260,17 +284,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             const storedSessions = localStorage.getItem('pyvex_demo_sessions');
             setSavedSessions(storedSessions ? JSON.parse(storedSessions) : DEFAULT_DEMO_SESSIONS);
+
+            const storedVoiceSettings = localStorage.getItem('pyvex_demo_voice_settings');
+            if (storedVoiceSettings) {
+              setSavedVoiceSettings(JSON.parse(storedVoiceSettings));
+            }
           } else {
             setUser(null);
             setUserProfile(null);
             setSavedAgents([]);
             setSavedSessions([]);
+            setSavedVoiceSettings({});
           }
         } catch {
           setUser(null);
           setUserProfile(null);
           setSavedAgents([]);
           setSavedSessions([]);
+          setSavedVoiceSettings({});
         }
       }
       setLoading(false);
@@ -366,6 +397,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserProfile(null);
       setSavedAgents([]);
       setSavedSessions([]);
+      setSavedVoiceSettings({});
       return;
     }
     try {
@@ -374,6 +406,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserProfile(null);
       setSavedAgents([]);
       setSavedSessions([]);
+      setSavedVoiceSettings({});
     } catch (err: any) {
       console.warn('[Firebase Auth] Sign Out Error:', err);
       setAuthError(err.message);
@@ -487,6 +520,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const saveVoiceSettings = async (
+    settingsData: Omit<VoiceSettingsDoc, 'userId' | 'createdAt' | 'updatedAt'>
+  ): Promise<VoiceSettingsDoc> => {
+    if (!user) {
+      throw new Error('Authentication required to persist voice settings.');
+    }
+
+    const nowIso = new Date().toISOString();
+    // Unique ID format for voice settings: setting_<userId>_<personaId>
+    const id = settingsData.id || `setting_${user.uid}_${settingsData.personaId || 'default'}`;
+    const fullSettings: VoiceSettingsDoc = {
+      ...settingsData,
+      id,
+      userId: user.uid,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    if (isDemo || user.isDemo) {
+      setSavedVoiceSettings((prev) => {
+        const updated = {
+          ...prev,
+          [fullSettings.personaId]: fullSettings,
+        };
+        try {
+          localStorage.setItem('pyvex_demo_voice_settings', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+      return fullSettings;
+    }
+
+    const path = `voice_settings/${fullSettings.id}`;
+    try {
+      await setDoc(doc(db, 'voice_settings', fullSettings.id), fullSettings);
+      setSavedVoiceSettings((prev) => ({
+        ...prev,
+        [fullSettings.personaId]: fullSettings,
+      }));
+      return fullSettings;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  };
+
+  const getVoiceSettings = async (personaId: string): Promise<VoiceSettingsDoc | null> => {
+    if (savedVoiceSettings[personaId]) {
+      return savedVoiceSettings[personaId];
+    }
+    if (!user || isDemo || user.isDemo) {
+      return null;
+    }
+    const settingDocId = `setting_${user.uid}_${personaId}`;
+    const path = `voice_settings/${settingDocId}`;
+    try {
+      const snap = await getDoc(doc(db, 'voice_settings', settingDocId));
+      if (snap.exists()) {
+        const data = snap.data() as VoiceSettingsDoc;
+        setSavedVoiceSettings((prev) => ({
+          ...prev,
+          [personaId]: data,
+        }));
+        return data;
+      }
+      return null;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.READ, path);
+      return null;
+    }
+  };
+
   const refreshUserData = async () => {
     if (user && !isDemo && !user.isDemo) {
       await syncUserData(user as FirebaseUser);
@@ -504,17 +608,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         userProfile,
         loading,
+        isDemo,
         authError,
         isUnauthorizedDomain,
         unauthorizedHostname,
         savedAgents,
         savedSessions,
+        savedVoiceSettings,
         signInWithGoogle,
         signInAsDemoUser,
         signOut,
         saveVoiceAgent,
         deleteVoiceAgent,
         saveCallSession,
+        saveVoiceSettings,
+        getVoiceSettings,
         refreshUserData,
         clearAuthError,
       }}

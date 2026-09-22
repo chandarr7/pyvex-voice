@@ -13,10 +13,14 @@ import {
   User,
   X,
   Radio,
+  Database,
+  Cloud,
+  ShieldCheck,
 } from 'lucide-react';
 import { PersonaVoiceTuning, PresetFlow } from '../types';
 import { PYVEX_PERSONAS, Persona, SWEET_FEMALE_VOICES, SweetVoiceProfile } from '../data/personas';
 import { playVoiceAudio, stopVoiceAudio } from '../utils/audioEngine';
+import { useAuth } from '../context/AuthContext';
 
 export interface VoiceSettingsPanelProps {
   isOpen: boolean;
@@ -45,13 +49,26 @@ export interface AccentOption {
 
 export const ACCENT_OPTIONS: AccentOption[] = [
   {
+    id: 'sweet_freya',
+    label: 'Freya (Sweet Radiant)',
+    region: 'ElevenLabs Premade',
+    flag: '✨',
+    description: 'Delightful, radiant, and charmingly sweet cadence with a warm acoustic smile. Default ElevenLabs voice.',
+    voiceMap: {
+      female: { voiceId: 'jsCqWAovK2LkecY7zXl4', name: 'Freya (Sweet Radiant)' },
+      male: { voiceId: 'IKne3meq5aSn9XLyUdCD', name: 'Charlie (Dynamic)' },
+    },
+    recommendedPitch: 1.12,
+    recommendedSpeed: 1.0,
+  },
+  {
     id: 'us_executive',
     label: 'American Executive',
     region: 'North America',
     flag: '🇺🇸',
     description: 'Crisp, consultative, polished corporate delivery for enterprise sales and leadership.',
     voiceMap: {
-      female: { voiceId: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah' },
+      female: { voiceId: 'jsCqWAovK2LkecY7zXl4', name: 'Freya' },
       male: { voiceId: 'IKne3meq5aSn9XLyUdCD', name: 'Charlie' },
     },
     recommendedPitch: 1.02,
@@ -149,19 +166,6 @@ export const ACCENT_OPTIONS: AccentOption[] = [
     recommendedSpeed: 0.96,
   },
   {
-    id: 'sweet_freya',
-    label: 'Freya (Sweet Radiant)',
-    region: 'Human Sweet Voice',
-    flag: '✨',
-    description: 'Delightful, radiant, and charmingly sweet cadence with a warm acoustic smile.',
-    voiceMap: {
-      female: { voiceId: 'jsCqWAovK2LkecY7zXl4', name: 'Freya (Sweet Radiant)' },
-      male: { voiceId: 'IKne3meq5aSn9XLyUdCD', name: 'Charlie (Dynamic)' },
-    },
-    recommendedPitch: 1.12,
-    recommendedSpeed: 1.0,
-  },
-  {
     id: 'sweet_emily',
     label: 'Emily (Sweet Gentle)',
     region: 'Human Sweet Voice',
@@ -231,25 +235,88 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
 }) => {
   const activePersona = getPersonaForFlow(activeFlowId);
   const activeFlowObj = flows?.find((f) => f.id === activeFlowId);
+  const { user, isDemo, saveVoiceSettings, getVoiceSettings, savedVoiceSettings } = useAuth();
 
   // Local draft state before committing
-  const [localTuning, setLocalTuning] = useState<PersonaVoiceTuning>(tuning);
+  const defaultStability = tuning.stability !== undefined ? tuning.stability : 0.75;
+  const [localTuning, setLocalTuning] = useState<PersonaVoiceTuning>({
+    ...tuning,
+    stability: defaultStability,
+  });
   const [isAuditioning, setIsAuditioning] = useState(false);
   const [auditionText, setAuditionText] = useState(
     activePersona.voices[tuning.gender]?.sampleScript ||
       'Hello! This is Pyvex acoustic synthesis preview with adjusted pitch, speed, and accent calibration.'
   );
   const [isSaved, setIsSaved] = useState(false);
+  const [isSavingToCloud, setIsSavingToCloud] = useState(false);
+  const [cloudSyncMessage, setCloudSyncMessage] = useState<string | null>(null);
+  const [lastSavedTimestamp, setLastSavedTimestamp] = useState<string | null>(null);
   const [auditioningSweetId, setAuditioningSweetId] = useState<string | null>(null);
 
   // Sync draft when tuning or flow updates
   useEffect(() => {
-    setLocalTuning(tuning);
+    setLocalTuning({
+      ...tuning,
+      stability: tuning.stability !== undefined ? tuning.stability : 0.75,
+    });
     const defaultVoice = activePersona.voices[tuning.gender];
     if (defaultVoice) {
       setAuditionText(defaultVoice.sampleScript);
     }
   }, [tuning, activeFlowId, activePersona]);
+
+  // Load persisted Firestore settings on open or when active persona changes
+  useEffect(() => {
+    let isMounted = true;
+    async function loadPersistedSettings() {
+      if (!isOpen) return;
+
+      // Check cache first
+      const existing = savedVoiceSettings[activePersona.id];
+      if (existing) {
+        if (isMounted) {
+          setLocalTuning((prev) => ({
+            ...prev,
+            speed: existing.speakingRate,
+            pitch: existing.pitch,
+            stability: existing.stability,
+            voiceId: existing.voiceId || prev.voiceId,
+            gender: existing.gender || prev.gender,
+            accent: existing.accent || prev.accent,
+          }));
+          setLastSavedTimestamp(existing.updatedAt || null);
+          setCloudSyncMessage('Loaded persisted settings from Firestore');
+        }
+        return;
+      }
+
+      // Query from Firestore if available
+      try {
+        const fetched = await getVoiceSettings(activePersona.id);
+        if (fetched && isMounted) {
+          setLocalTuning((prev) => ({
+            ...prev,
+            speed: fetched.speakingRate,
+            pitch: fetched.pitch,
+            stability: fetched.stability,
+            voiceId: fetched.voiceId || prev.voiceId,
+            gender: fetched.gender || prev.gender,
+            accent: fetched.accent || prev.accent,
+          }));
+          setLastSavedTimestamp(fetched.updatedAt || null);
+          setCloudSyncMessage('Loaded persisted settings from Firestore');
+        }
+      } catch (err) {
+        console.warn('Notice loading voice settings from Firestore:', err);
+      }
+    }
+
+    loadPersistedSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, activePersona.id]);
 
   // Clean up playback on unmount or close
   useEffect(() => {
@@ -293,9 +360,14 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
     setLocalTuning((prev) => ({ ...prev, pitch: Number(pitch.toFixed(2)) }));
   };
 
-  // Speed change
+  // Speed change (speaking rate)
   const handleSpeedChange = (speed: number) => {
     setLocalTuning((prev) => ({ ...prev, speed: Number(speed.toFixed(2)) }));
+  };
+
+  // Stability change (tone stability)
+  const handleStabilityChange = (stability: number) => {
+    setLocalTuning((prev) => ({ ...prev, stability: Number(stability.toFixed(2)) }));
   };
 
   // Select human female sweet voice
@@ -309,6 +381,7 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
       voiceId: sweetVoice.id,
       pitch: sweetVoice.pitch,
       speed: sweetVoice.rate,
+      stability: 0.75,
       accent: `sweet_${sweetVoice.name.toLowerCase()}`,
     };
     setLocalTuning(newTuning);
@@ -333,6 +406,7 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
       gender: 'female',
       pitch: sweetVoice.pitch,
       rate: sweetVoice.rate,
+      stability: localTuning.stability ?? 0.75,
       authToken,
       onStateChange: (playing) => {
         if (!playing) setAuditioningSweetId(null);
@@ -354,11 +428,12 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
         ? 'us_concierge'
         : activePersona.id === 'logistics-dispatch'
         ? 'us_dispatch'
-        : 'us_executive';
+        : 'sweet_freya';
 
     const baseline: PersonaVoiceTuning = {
       pitch: defaultVoice.pitch,
       speed: defaultVoice.rate,
+      stability: 0.75,
       accent: defaultAccent,
       voiceId: defaultVoice.elevenLabsId,
       gender: localTuning.gender,
@@ -384,11 +459,42 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
       gender: localTuning.gender,
       pitch: localTuning.pitch,
       rate: localTuning.speed,
+      stability: localTuning.stability ?? 0.75,
       authToken,
       onStateChange: (playing) => {
         setIsAuditioning(playing);
       },
     });
+  };
+
+  // Persist speaking rate, pitch, and stability to Cloud Firestore
+  const handleSaveToFirestore = async () => {
+    setIsSavingToCloud(true);
+    setCloudSyncMessage(null);
+    try {
+      await saveVoiceSettings({
+        personaId: activePersona.id,
+        voiceId: localTuning.voiceId,
+        speakingRate: localTuning.speed,
+        pitch: localTuning.pitch,
+        stability: localTuning.stability ?? 0.75,
+        gender: localTuning.gender,
+        accent: localTuning.accent,
+      });
+
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastSavedTimestamp(timeStr);
+      setCloudSyncMessage(`Persisted to Firestore at ${timeStr}`);
+      onUpdateTuning(localTuning);
+      if (onAppliedToast) {
+        onAppliedToast(`Voice settings for "${activePersona.roleTitle}" saved to Firestore.`);
+      }
+    } catch (err: any) {
+      console.error('Failed to persist voice settings:', err);
+      setCloudSyncMessage(`Notice: ${err.message || 'Saved locally in demo mode'}`);
+    } finally {
+      setIsSavingToCloud(false);
+    }
   };
 
   // Apply to active session
@@ -399,7 +505,7 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
     setIsSaved(true);
     if (onAppliedToast) {
       onAppliedToast(
-        `Applied voice settings: Pitch ${localTuning.pitch.toFixed(2)}x, Speed ${localTuning.speed.toFixed(2)}x (${currentAccent.label})`
+        `Applied voice settings: Pitch ${localTuning.pitch.toFixed(2)}x, Speed ${localTuning.speed.toFixed(2)}x, Stability ${(((localTuning.stability ?? 0.75) * 100).toFixed(0))}% (${currentAccent.label})`
       );
     }
     setTimeout(() => {
@@ -633,120 +739,234 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
             </div>
           </div>
 
-          {/* Speed & Pitch Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-1">
-            {/* Speed / Rate Controller */}
-            <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.08] space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-mono tracking-[0.2em] uppercase text-white/50 flex items-center gap-2">
-                  <Gauge className="w-3.5 h-3.5 text-amber-400" />
-                  Voice Speed (Rate)
-                </label>
-                <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-white/[0.06] text-amber-300">
-                  {localTuning.speed.toFixed(2)}x
+          {/* Acoustic Tuning Grid: Speed, Pitch & Tone Stability */}
+          <div className="space-y-4 pt-1">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-mono tracking-[0.2em] uppercase text-white/50 flex items-center gap-2">
+                <Sliders className="w-3.5 h-3.5 text-purple-400" />
+                Acoustic Parameters & Tone Stability
+              </label>
+              {lastSavedTimestamp && (
+                <span className="text-[10px] font-mono text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Cloud className="w-3 h-3 text-emerald-400" />
+                  Synced {lastSavedTimestamp}
                 </span>
-              </div>
+              )}
+            </div>
 
-              <div className="relative pt-1">
-                <input
-                  id="voice-speed-slider"
-                  type="range"
-                  min="0.70"
-                  max="1.40"
-                  step="0.05"
-                  value={localTuning.speed}
-                  onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
-                  className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-400 focus:outline-none"
-                />
-                <div className="flex justify-between text-[10px] font-mono text-white/40 mt-1.5">
-                  <span>0.70x (Deliberate)</span>
-                  <span className="text-white/60">1.00x Normal</span>
-                  <span>1.40x (Rapid)</span>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Speaking Rate (Speed) Controller */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.08] space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-mono tracking-wider uppercase text-white/60 flex items-center gap-1.5">
+                    <Gauge className="w-3.5 h-3.5 text-amber-400" />
+                    Speaking Rate
+                  </label>
+                  <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-white/[0.06] text-amber-300">
+                    {localTuning.speed.toFixed(2)}x
+                  </span>
+                </div>
+
+                <div className="relative pt-1">
+                  <input
+                    id="voice-speed-slider"
+                    type="range"
+                    min="0.50"
+                    max="1.75"
+                    step="0.05"
+                    value={localTuning.speed}
+                    onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
+                    className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-400 focus:outline-none"
+                  />
+                  <div className="flex justify-between text-[9px] font-mono text-white/40 mt-1.5">
+                    <span>0.50x Slow</span>
+                    <span className="text-white/60">1.00x Base</span>
+                    <span>1.75x Brisk</span>
+                  </div>
+                </div>
+
+                {/* Quick speed preset pills */}
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {[
+                    { label: '0.85x Deliberate', val: 0.85 },
+                    { label: '1.00x Natural', val: 1.0 },
+                    { label: '1.15x Brisk', val: 1.15 },
+                    { label: '1.30x Fast', val: 1.3 },
+                  ].map((p) => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      onClick={() => handleSpeedChange(p.val)}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                        Math.abs(localTuning.speed - p.val) < 0.02
+                          ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40'
+                          : 'bg-white/[0.04] text-white/50 hover:text-white hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Quick speed preset pills */}
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {[
-                  { label: '0.85x Deliberate', val: 0.85 },
-                  { label: '1.00x Conversational', val: 1.0 },
-                  { label: '1.15x Brisk', val: 1.15 },
-                  { label: '1.30x Fast', val: 1.3 },
-                ].map((p) => (
-                  <button
-                    key={p.val}
-                    type="button"
-                    onClick={() => handleSpeedChange(p.val)}
-                    className={`px-2 py-1 rounded-md text-[10px] font-mono transition-colors ${
-                      Math.abs(localTuning.speed - p.val) < 0.02
-                        ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40'
-                        : 'bg-white/[0.04] text-white/50 hover:text-white hover:bg-white/[0.08]'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+              {/* Pitch Controller */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.08] space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-mono tracking-wider uppercase text-white/60 flex items-center gap-1.5">
+                    <Music className="w-3.5 h-3.5 text-cyan-400" />
+                    Voice Pitch
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-white/[0.06] text-cyan-300">
+                      {localTuning.pitch.toFixed(2)}x
+                    </span>
+                    <span className="text-[9px] font-mono text-white/40">
+                      ({Number(pitchSemitones) > 0 ? `+${pitchSemitones}` : pitchSemitones}st)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="relative pt-1">
+                  <input
+                    id="voice-pitch-slider"
+                    type="range"
+                    min="0.75"
+                    max="1.35"
+                    step="0.02"
+                    value={localTuning.pitch}
+                    onChange={(e) => handlePitchChange(parseFloat(e.target.value))}
+                    className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400 focus:outline-none"
+                  />
+                  <div className="flex justify-between text-[9px] font-mono text-white/40 mt-1.5">
+                    <span>0.75x Deep</span>
+                    <span className="text-white/60">1.00x Base</span>
+                    <span>1.35x Crisp</span>
+                  </div>
+                </div>
+
+                {/* Quick pitch preset pills */}
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {[
+                    { label: '0.86x Deep', val: 0.86 },
+                    { label: '1.00x Base', val: 1.0 },
+                    { label: '1.12x Crisp', val: 1.12 },
+                    { label: '1.24x High', val: 1.24 },
+                  ].map((p) => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      onClick={() => handlePitchChange(p.val)}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                        Math.abs(localTuning.pitch - p.val) < 0.02
+                          ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/40'
+                          : 'bg-white/[0.04] text-white/50 hover:text-white hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tone Stability Controller */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.08] space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-mono tracking-wider uppercase text-white/60 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    Tone Stability
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-white/[0.06] text-emerald-300">
+                      {((localTuning.stability ?? 0.75) * 100).toFixed(0)}%
+                    </span>
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">
+                      {(localTuning.stability ?? 0.75) < 0.45
+                        ? 'Dynamic'
+                        : (localTuning.stability ?? 0.75) <= 0.80
+                        ? 'Natural'
+                        : 'Ultra-Stable'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="relative pt-1">
+                  <input
+                    id="voice-stability-slider"
+                    type="range"
+                    min="0.00"
+                    max="1.00"
+                    step="0.05"
+                    value={localTuning.stability ?? 0.75}
+                    onChange={(e) => handleStabilityChange(parseFloat(e.target.value))}
+                    className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-400 focus:outline-none"
+                  />
+                  <div className="flex justify-between text-[9px] font-mono text-white/40 mt-1.5">
+                    <span>0% Emotive</span>
+                    <span className="text-white/60">75% Natural</span>
+                    <span>100% Broadcast</span>
+                  </div>
+                </div>
+
+                {/* Quick stability preset pills */}
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {[
+                    { label: '0.35 Expressive', val: 0.35 },
+                    { label: '0.75 Natural', val: 0.75 },
+                    { label: '0.95 Ultra-Stable', val: 0.95 },
+                  ].map((p) => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      onClick={() => handleStabilityChange(p.val)}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                        Math.abs((localTuning.stability ?? 0.75) - p.val) < 0.05
+                          ? 'bg-emerald-400/20 text-emerald-300 border border-emerald-400/40'
+                          : 'bg-white/[0.04] text-white/50 hover:text-white hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Firestore Cloud Persistence Banner */}
+          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/[0.06] via-purple-500/[0.04] to-transparent border border-emerald-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                <Database className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-white font-mono">Firestore Cloud Persistence</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Collection /voice_settings
+                  </span>
+                </div>
+                <p className="text-[11px] text-white/50 mt-0.5">
+                  Save speaking rate ({localTuning.speed.toFixed(2)}x), pitch ({localTuning.pitch.toFixed(2)}x), and stability ({(((localTuning.stability ?? 0.75) * 100).toFixed(0))}%) for persona <strong className="text-white/80">{activePersona.roleTitle}</strong>
+                </p>
+                {cloudSyncMessage && (
+                  <p className="text-[10px] font-mono text-emerald-300 mt-1 flex items-center gap-1">
+                    <Check className="w-3 h-3 text-emerald-400" />
+                    {cloudSyncMessage}
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Pitch Controller */}
-            <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.08] space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-mono tracking-[0.2em] uppercase text-white/50 flex items-center gap-2">
-                  <Music className="w-3.5 h-3.5 text-cyan-400" />
-                  Voice Pitch (Frequency)
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-white/[0.06] text-cyan-300">
-                    {localTuning.pitch.toFixed(2)}x
-                  </span>
-                  <span className="text-[10px] font-mono text-white/40">
-                    ({Number(pitchSemitones) > 0 ? `+${pitchSemitones}` : pitchSemitones} st)
-                  </span>
-                </div>
-              </div>
-
-              <div className="relative pt-1">
-                <input
-                  id="voice-pitch-slider"
-                  type="range"
-                  min="0.75"
-                  max="1.35"
-                  step="0.02"
-                  value={localTuning.pitch}
-                  onChange={(e) => handlePitchChange(parseFloat(e.target.value))}
-                  className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400 focus:outline-none"
-                />
-                <div className="flex justify-between text-[10px] font-mono text-white/40 mt-1.5">
-                  <span>0.75x (Deep Base)</span>
-                  <span className="text-white/60">1.00x Natural</span>
-                  <span>1.35x (Bright)</span>
-                </div>
-              </div>
-
-              {/* Quick pitch preset pills */}
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {[
-                  { label: '0.86x Deep & Low', val: 0.86 },
-                  { label: '1.00x Natural', val: 1.0 },
-                  { label: '1.12x Bright & Crisp', val: 1.12 },
-                  { label: '1.24x Resonant', val: 1.24 },
-                ].map((p) => (
-                  <button
-                    key={p.val}
-                    type="button"
-                    onClick={() => handlePitchChange(p.val)}
-                    className={`px-2 py-1 rounded-md text-[10px] font-mono transition-colors ${
-                      Math.abs(localTuning.pitch - p.val) < 0.02
-                        ? 'bg-cyan-400/20 text-cyan-300 border border-cyan-400/40'
-                        : 'bg-white/[0.04] text-white/50 hover:text-white hover:bg-white/[0.08]'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <button
+              type="button"
+              id="persist-voice-settings-button"
+              onClick={handleSaveToFirestore}
+              disabled={isSavingToCloud}
+              className="px-4 py-2 rounded-xl text-xs font-mono font-medium border border-emerald-500/40 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 flex items-center gap-1.5 transition-all shadow-sm shrink-0 disabled:opacity-50"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-300" />
+              <span>{isSavingToCloud ? 'Saving to Firestore...' : 'Persist to Firestore'}</span>
+            </button>
           </div>
 
           {/* Audition / Test Synthesis Section */}
@@ -815,15 +1035,28 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
 
         {/* Panel Footer */}
         <div className="px-6 py-4 border-t border-white/[0.08] flex items-center justify-between bg-white/[0.02] gap-3">
-          <button
-            type="button"
-            onClick={handleReset}
-            className="px-3.5 py-2 rounded-xl text-xs font-mono text-white/50 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] flex items-center gap-1.5 transition-colors"
-            title="Revert to calibrated default pitch and speed for active persona"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Reset to Baseline</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-3.5 py-2 rounded-xl text-xs font-mono text-white/50 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] flex items-center gap-1.5 transition-colors"
+              title="Revert to calibrated default pitch, speed, and stability for active persona"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Reset to Baseline</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSaveToFirestore}
+              disabled={isSavingToCloud}
+              className="px-3.5 py-2 rounded-xl text-xs font-mono text-emerald-300 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              title="Persist voice tuning to Firestore database"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">{isSavingToCloud ? 'Saving...' : 'Save to Firestore'}</span>
+            </button>
+          </div>
 
           <div className="flex items-center gap-2.5">
             <button
@@ -863,3 +1096,6 @@ export const VoiceSettingsPanel: React.FC<VoiceSettingsPanelProps> = ({
     </div>
   );
 };
+
+// Also export as VoiceSettings so consumers can use either naming convention
+export const VoiceSettings: React.FC<VoiceSettingsPanelProps> = VoiceSettingsPanel;

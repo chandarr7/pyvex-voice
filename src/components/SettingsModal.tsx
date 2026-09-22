@@ -49,10 +49,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Local copy of voice tuning
   const [localTuning, setLocalTuning] = useState<PersonaVoiceTuning>(
     voiceTuning || {
-      pitch: 1.0,
+      pitch: 1.12,
       speed: 1.0,
-      accent: 'us_executive',
-      voiceId: 'EXAVITQu4vr4xnSDxMaL',
+      accent: 'sweet_freya',
+      voiceId: 'jsCqWAovK2LkecY7zXl4',
       gender: 'female',
     }
   );

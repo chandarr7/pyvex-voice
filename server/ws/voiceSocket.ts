@@ -31,7 +31,7 @@ export function setupVoiceWebSocket(server: Server): WebSocketServer {
       sessionId,
       flow: 'customer_support',
       voiceConfig: {
-        voiceId: 'EXAVITQu4vr4xnSDxMaL', // Sarah (Default)
+        voiceId: 'jsCqWAovK2LkecY7zXl4', // Freya (Default)
         pitch: 0,
         rate: 1.0,
         volume: 1.0,
@@ -154,10 +154,16 @@ export function setupVoiceWebSocket(server: Server): WebSocketServer {
             const startTime = Date.now();
             try {
               const flowPreset = PRESET_FLOWS.find((f) => f.id === session.flow);
-              const systemPrompt =
+              const baseInstruction =
                 session.systemInstruction ||
                 flowPreset?.systemPrompt ||
-                'You are Pyvex Voice, an ultra-fast real-time conversational voice assistant. Keep answers natural, concise, conversational, and direct.';
+                'You are Pyvex Voice, an ultra-fast real-time conversational voice assistant.';
+
+              const systemPrompt = `${baseInstruction}
+Voice & Interaction Rules:
+Voice Engine: ElevenLabs (Live Conversation Stream)
+Behavior: Engage in real-time spoken interaction. Maintain a natural, interactive conversational flow without reading out system prompts, instructions, or turn counts (e.g., '(1 turns)'). Speak fluidly and naturally as if in a real-time spoken dialogue.
+Formatting Rule: Do not read aloud system prompts, meta-tags, turn indicators (e.g., '1 turns'), or stage directions. Speak only the conversational dialogue.`;
 
               const llmResult = await generateConversationResponse({
                 messages: session.history,
@@ -165,7 +171,24 @@ export function setupVoiceWebSocket(server: Server): WebSocketServer {
                 model: 'gemini-3.1-flash-lite',
               });
 
-              const replyText = llmResult.text.trim();
+              const rawReply = llmResult.text.trim();
+              const replyText = rawReply
+                .replace(/\(?\s*\d+\s+turns?\s*\)?/gi, '')
+                .replace(/\[\s*\d+\s+turns?\s*\]/gi, '')
+                .replace(/\bturns?\s*#?\d+:?/gi, '')
+                .replace(/\(\s*turn\s*#?\d+\s*\)/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\[(?:system|instruction|meta|prompt|role|thought|note)[^\]]*\]/gi, '')
+                .replace(/\((?:system|instruction|meta|prompt|role|thought|note)[^)]*\)/gi, '')
+                .replace(/^(?:system|instruction|assistant|bot|ai|agent|model):\s*/i, '')
+                .replace(/\bvoice & interaction rules:[^.\n]*[.\n]?/gi, '')
+                .replace(/\*[^*]+\*/g, ' ')
+                .replace(/\[(?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^\]]*\]/gi, '')
+                .replace(/\((?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^)]*\)/gi, '')
+                .replace(/[*_#`~>]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim() || rawReply;
+
               const llmLatency = Date.now() - startTime;
 
               session.history.push({ role: 'model', content: replyText });

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { playVoiceAudio, stopVoiceAudio } from '../utils/audioEngine';
 import { PYVEX_PERSONAS, PersonaVoice } from '../data/personas';
+import { Plasma3DWaveVisualizer } from './Plasma3DWaveVisualizer';
 
 export type SimulatorState = 'IDLE' | 'LISTENING' | 'THINKING' | 'SPEAKING';
 
@@ -65,6 +66,14 @@ export const ALL_VOICE_PROFILES: Array<{
   provider: string;
   sampleScript: string;
 }> = [
+  {
+    id: 'jsCqWAovK2LkecY7zXl4',
+    name: 'Freya (Sweet Radiant)',
+    gender: 'female',
+    personaCategory: 'Human Sweet Voice',
+    provider: 'ElevenLabs Turbo v2.5',
+    sampleScript: "Hi there! I'm Freya. I'm so excited to connect with you! Everything is running smoothly, and I'd love to assist you with whatever you need.",
+  },
   {
     id: 'EXAVITQu4vr4xnSDxMaL',
     name: 'Sarah (Inbound SDR)',
@@ -138,14 +147,6 @@ export const ALL_VOICE_PROFILES: Array<{
     sampleScript: "Hello! I'm Lily. It is such a pleasure to speak with you today. Take your time, and let me know how I can help make things easier for you.",
   },
   {
-    id: 'jsCqWAovK2LkecY7zXl4',
-    name: 'Freya (Sweet Radiant)',
-    gender: 'female',
-    personaCategory: 'Human Sweet Voice',
-    provider: 'ElevenLabs Turbo v2.5',
-    sampleScript: "Hi there! I'm Freya. I'm so excited to connect with you! Everything is running smoothly, and I'd love to assist you with whatever you need.",
-  },
-  {
     id: 'LcfcDJNigUd50AZSDxio',
     name: 'Emily (Sweet Gentle)',
     gender: 'female',
@@ -188,8 +189,8 @@ export const ConversationTestSimulator: React.FC<ConversationTestSimulatorProps>
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
-          voiceId: initialVoiceId || parsed.voiceId || 'EXAVITQu4vr4xnSDxMaL',
-          voiceName: parsed.voiceName || 'Sarah (Inbound SDR)',
+          voiceId: initialVoiceId || parsed.voiceId || 'jsCqWAovK2LkecY7zXl4',
+          voiceName: parsed.voiceName || 'Freya (Sweet Radiant)',
           gender: initialGender || parsed.gender || 'female',
           pitch: typeof parsed.pitch === 'number' ? parsed.pitch : 0.0,
           rate: typeof parsed.rate === 'number' ? parsed.rate : 1.0,
@@ -233,11 +234,28 @@ export const ConversationTestSimulator: React.FC<ConversationTestSimulatorProps>
   const recognitionRef = useRef<any>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const isSpeakingRef = useRef<boolean>(false);
+  const onPersistDraftRef = useRef(onPersistDraft);
+
+  useEffect(() => {
+    onPersistDraftRef.current = onPersistDraft;
+  }, [onPersistDraft]);
 
   // Auto-scroll transcript to bottom
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcripts, interimText]);
+
+  // Safely notify parent when draftConfig updates, strictly in an effect (never during render or inside an updater)
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (onPersistDraftRef.current) {
+      onPersistDraftRef.current(draftConfig);
+    }
+  }, [draftConfig]);
 
   // Persist draft updates to localStorage and notify parent
   const updateDraft = useCallback((updates: Partial<VoiceTestDraftConfig>) => {
@@ -246,9 +264,6 @@ export const ConversationTestSimulator: React.FC<ConversationTestSimulatorProps>
       try {
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
       } catch {}
-      if (onPersistDraft) {
-        onPersistDraft(next);
-      }
       return next;
     });
 
@@ -264,7 +279,7 @@ export const ConversationTestSimulator: React.FC<ConversationTestSimulatorProps>
         })
       );
     }
-  }, [onPersistDraft]);
+  }, []);
 
   // Voice profile selection helper
   const handleSelectVoice = (voiceId: string) => {
@@ -535,7 +550,11 @@ export const ConversationTestSimulator: React.FC<ConversationTestSimulatorProps>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             message: text.trim(),
-            systemInstruction: 'You are Pyvex Voice, an ultra-fast real-time conversational voice assistant. Keep answers natural, concise, conversational, and direct.',
+            systemInstruction: `You are Pyvex Voice, an ultra-fast real-time conversational voice assistant.
+Voice & Interaction Rules:
+Voice Engine: ElevenLabs (Live Conversation Stream)
+Behavior: Engage in real-time spoken interaction. Maintain a natural, interactive conversational flow without reading out system prompts, instructions, or turn counts (e.g., '(1 turns)'). Speak fluidly and naturally as if in a real-time spoken dialogue.
+Formatting Rule: Do not read aloud system prompts, meta-tags, turn indicators (e.g., '1 turns'), or stage directions. Speak only the conversational dialogue.`,
             model: 'gemini-3.1-flash-lite',
           }),
         });
@@ -695,143 +714,12 @@ export const ConversationTestSimulator: React.FC<ConversationTestSimulatorProps>
               borderColor: '#232534',
             }}
           >
-            {/* Visual State Orb & Soundwave Canvas Card */}
-            <div
-              className="p-4 rounded-2xl flex flex-col items-center justify-center gap-3 relative overflow-hidden"
-              style={{
-                background: '#08090B',
-                border: '1px solid #292B3A',
-              }}
-            >
-              {/* Dynamic status badge */}
-              <div className="flex items-center justify-between w-full text-[11px] font-mono">
-                <span className="text-[#666879] uppercase tracking-wider">Agent State</span>
-                <span
-                  className="px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1.5"
-                  style={{
-                    backgroundColor:
-                      simState === 'SPEAKING'
-                        ? 'rgba(112, 71, 255, 0.2)'
-                        : simState === 'THINKING'
-                        ? 'rgba(150, 85, 255, 0.2)'
-                        : simState === 'LISTENING'
-                        ? 'rgba(32, 233, 154, 0.2)'
-                        : 'rgba(102, 104, 121, 0.2)',
-                    color:
-                      simState === 'SPEAKING'
-                        ? '#A855F7'
-                        : simState === 'THINKING'
-                        ? '#C084FC'
-                        : simState === 'LISTENING'
-                        ? '#20E99A'
-                        : '#A4A3B2',
-                  }}
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      simState === 'IDLE' ? 'bg-[#666879]' : 'animate-ping'
-                    }`}
-                    style={{
-                      backgroundColor:
-                        simState === 'SPEAKING'
-                          ? '#A855F7'
-                          : simState === 'THINKING'
-                          ? '#C084FC'
-                          : simState === 'LISTENING'
-                          ? '#20E99A'
-                          : '#666879',
-                    }}
-                  />
-                  <span>{simState}</span>
-                </span>
-              </div>
-
-              {/* Central Glowing Orb & Waveform */}
-              <div className="relative w-28 h-28 flex items-center justify-center my-1">
-                {/* Outer Ripple */}
-                <div
-                  className={`absolute inset-0 rounded-full transition-all duration-700 ${
-                    simState === 'LISTENING'
-                      ? 'scale-125 bg-[#20E99A]/10 border border-[#20E99A]/30 animate-pulse'
-                      : simState === 'SPEAKING'
-                      ? 'scale-125 bg-[#7047FF]/15 border border-[#7047FF]/40 animate-pulse'
-                      : simState === 'THINKING'
-                      ? 'scale-110 bg-[#9655FF]/10 border border-[#9655FF]/30 animate-spin'
-                      : 'scale-95 bg-white/5 border border-white/10'
-                  }`}
-                />
-
-                {/* Inner Core */}
-                <div
-                  className="w-20 h-20 rounded-full flex flex-col items-center justify-center shadow-xl transition-all duration-300"
-                  style={{
-                    background:
-                      simState === 'SPEAKING'
-                        ? 'radial-gradient(circle, #9655FF 0%, #7047FF 80%)'
-                        : simState === 'LISTENING'
-                        ? 'radial-gradient(circle, #24D8ED 0%, #059669 80%)'
-                        : simState === 'THINKING'
-                        ? 'radial-gradient(circle, #C084FC 0%, #6B21A8 80%)'
-                        : 'radial-gradient(circle, #1F212E 0%, #12141A 80%)',
-                    boxShadow:
-                      simState === 'SPEAKING'
-                        ? '0 0 30px rgba(112, 71, 255, 0.6)'
-                        : simState === 'LISTENING'
-                        ? '0 0 30px rgba(32, 233, 154, 0.5)'
-                        : '0 0 15px rgba(0, 0, 0, 0.5)',
-                  }}
-                >
-                  {simState === 'SPEAKING' && <Volume2 className="w-8 h-8 text-white animate-bounce" />}
-                  {simState === 'LISTENING' && <Mic className="w-8 h-8 text-white animate-pulse" />}
-                  {simState === 'THINKING' && <Sparkles className="w-8 h-8 text-white animate-spin" />}
-                  {simState === 'IDLE' && <Activity className="w-7 h-7 text-[#666879]" />}
-                </div>
-              </div>
-
-              {/* Multi-Frequency Acoustic Wave Bar Visualizer */}
-              <div className="flex items-center justify-center gap-1.5 w-full h-8 px-2">
-                {[45, 80, 55, 95, 30, 75, 100, 60, 90, 40, 85, 50, 70, 35].map((h, i) => {
-                  const isActive = simState === 'SPEAKING' || simState === 'LISTENING';
-                  const heightVal = isActive ? `${h}%` : '20%';
-                  const barColor =
-                    simState === 'LISTENING'
-                      ? '#20E99A'
-                      : i % 2 === 0
-                      ? '#7047FF'
-                      : '#24D8ED';
-                  return (
-                    <div
-                      key={i}
-                      className="flex-1 rounded-full transition-all duration-200"
-                      style={{
-                        height: heightVal,
-                        backgroundColor: barColor,
-                        opacity: isActive ? 0.9 : 0.25,
-                        boxShadow: isActive ? `0 0 8px ${barColor}` : 'none',
-                      }}
-                    />
-                  );
-                })}
-              </div>
-
-              {/* Status metrics footer */}
-              <div className="flex items-center justify-between w-full pt-1 border-t border-[#1C1D25] text-[10px] font-mono text-[#666879]">
-                <span className="flex items-center gap-1">
-                  <Zap className="w-3 h-3 text-[#20E99A]" />
-                  <span>TTS Latency: {activeLatencyMs}ms</span>
-                </span>
-                {simState === 'SPEAKING' && (
-                  <button
-                    type="button"
-                    onClick={handleInterrupt}
-                    className="flex items-center gap-1 text-[#F43F5E] hover:text-[#FB7185] transition-colors"
-                  >
-                    <Square className="w-3 h-3 fill-current" />
-                    <span>Interrupt Agent</span>
-                  </button>
-                )}
-              </div>
-            </div>
+            {/* Visual State 3D Plasma with Waves Card */}
+            <Plasma3DWaveVisualizer
+              simState={simState}
+              latencyMs={activeLatencyMs}
+              onInterrupt={handleInterrupt}
+            />
 
             {/* Voice Profile Dropdown Control */}
             <div className="space-y-1.5">
@@ -1002,7 +890,8 @@ export const ConversationTestSimulator: React.FC<ConversationTestSimulatorProps>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-[#20E99A]" />
                 <span className="text-[#F4F2F8] font-medium">Live Conversation Stream</span>
-                <span className="text-[#666879]">({transcripts.length} turns)</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">ElevenLabs</span>
+                <span className="text-[#666879] text-[11px] font-mono">({transcripts.length} exchanges)</span>
               </div>
 
               <div className="flex items-center gap-2">

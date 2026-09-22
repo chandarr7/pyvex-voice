@@ -314,6 +314,8 @@ export const DynamicAudioVisualizer: React.FC<DynamicAudioVisualizerProps> = ({
 
   // Handle Retina devicePixelRatio & Container Resizing
   useEffect(() => {
+    let rafId: number | null = null;
+
     const handleResize = () => {
       const canvas = canvasRef.current;
       const container = containerRef.current;
@@ -321,27 +323,44 @@ export const DynamicAudioVisualizer: React.FC<DynamicAudioVisualizerProps> = ({
 
       const rect = container.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
+      const targetWidth = Math.max(1, Math.floor(rect.width * dpr));
+      const targetHeight = Math.max(1, Math.floor(rect.height * dpr));
 
-      canvas.width = Math.floor(rect.width * dpr);
-      canvas.height = Math.floor(rect.height * dpr);
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
 
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.scale(dpr, dpr);
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.scale(dpr, dpr);
+        }
       }
+    };
+
+    const scheduledResize = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      rafId = requestAnimationFrame(handleResize);
     };
 
     handleResize();
 
-    const resizeObserver = new ResizeObserver(handleResize);
+    const resizeObserver = new ResizeObserver(() => {
+      scheduledResize();
+    });
+
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
     }
 
-    window.addEventListener('resize', handleResize);
+    window.addEventListener('resize', scheduledResize);
     return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
       resizeObserver.disconnect();
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', scheduledResize);
     };
   }, []);
 

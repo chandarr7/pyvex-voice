@@ -3,8 +3,6 @@ import { Navbar } from './components/Navbar';
 import { HeroCarousel } from './components/HeroCarousel';
 import { FeatureShowcase } from './components/FeatureShowcase';
 import { SolutionsGrid } from './components/SolutionsGrid';
-import { GeminiChatSection } from './components/GeminiChatSection';
-import { GeminiFloatingChat } from './components/GeminiFloatingChat';
 import { PricingSection } from './components/PricingSection';
 import { Footer } from './components/Footer';
 import { LiveStudioModal } from './components/LiveStudioModal';
@@ -41,20 +39,6 @@ export function AppContent() {
     setIsAuthModalOpen(true);
   };
 
-  // Map selected hero persona to matching Gemini agent role
-  const geminiRoleFromPersona =
-    activePersonaId === 'enterprise-sdr'
-      ? 'tilted_sales_agent'
-      : activePersonaId === 'healthcare-triage'
-      ? 'clinical_intake'
-      : activePersonaId === 'fintech-wealth'
-      ? 'wealth_fraud'
-      : activePersonaId === 'real-estate-luxury'
-      ? 'luxury_real_estate'
-      : activePersonaId === 'logistics-dispatch'
-      ? 'fleet_dispatcher'
-      : 'tilted_sales_agent';
-
   return (
     <div className="min-h-screen flex flex-col bg-[#08090B] text-[#F4F2F8] selection:bg-[#7047FF]/30 selection:text-[#F4F2F8] antialiased">
       {/* Sticky Header Navigation */}
@@ -83,18 +67,12 @@ export function AppContent() {
           onOpenStudio={handleOpenStudio}
         />
 
-        {/* Dedicated Gemini Multi-Turn Conversational Agent Section */}
-        <GeminiChatSection initialRole={geminiRoleFromPersona} />
-
         {/* Transparent Pricing Section */}
         <PricingSection
           onOpenStudio={handleOpenStudio}
           onBookDemo={() => setIsDemoModalOpen(true)}
         />
       </main>
-
-      {/* Floating Quick Chat Widget for Gemini Conversational Agent */}
-      <GeminiFloatingChat />
 
       {/* Luxury Footer */}
       <Footer />

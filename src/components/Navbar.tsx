@@ -49,13 +49,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
             Solutions
           </a>
           <a
-            href="#gemini-chat"
-            className="hover:text-[#F4F2F8] transition-colors flex items-center gap-1.5 text-[#D8B4FE]"
-          >
-            <Sparkles className="w-3 h-3 text-[#24D8ED]" />
-            <span>Tilted Sales Agent</span>
-          </a>
-          <a
             href="#architecture"
             className="hover:text-[#F4F2F8] transition-colors"
           >
@@ -152,14 +145,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenStudio, onOpenPricing, onO
             className="block py-2 text-[#A4A3B2] hover:text-[#F4F2F8]"
           >
             Solutions
-          </a>
-          <a
-            href="#gemini-chat"
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center gap-2 py-2 text-[#D8B4FE] hover:text-[#F4F2F8]"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#24D8ED]" />
-            <span>Tilted Sales Agent</span>
           </a>
           <a
             href="#architecture"

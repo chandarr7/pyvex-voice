@@ -147,8 +147,54 @@ export const playAcousticToneFallback = async (durationMs = 1200): Promise<void>
 };
 
 /**
- * Plays voice audio via server-side preview endpoint if configured,
- * or cleanly falls back to browser SpeechSynthesis.
+ * Sanitizes dialogue before sending to ElevenLabs voice synthesis.
+ * Strips out:
+ * - Turn count indicators: e.g. "(1 turns)", "(2 turns)", "1 turns", "Turn 1:", "[1 turns]"
+ * - System prompts, system instructions, meta tags: e.g. "System:", "[System Prompt]", "<system>...</system>"
+ * - Stage directions and action tags: e.g. [pause], (chuckles), *nods*, [smiles], *speaks warmly*
+ * - Markdown asterisks, headers, bullet points, numbering
+ * Ensures the ElevenLabs voice engine speaks fluidly, naturally, and solely the conversational dialogue.
+ */
+export function sanitizeSpokenText(rawText: string): string {
+  if (!rawText || typeof rawText !== 'string') return '';
+
+  let text = rawText;
+
+  // 1. Remove turn counts, e.g. "(1 turns)", "(2 turns)", "1 turns", "turn 1:", "[1 turns]"
+  text = text.replace(/\(?\s*\d+\s+turns?\s*\)?/gi, '');
+  text = text.replace(/\[\s*\d+\s+turns?\s*\]/gi, '');
+  text = text.replace(/\bturns?\s*#?\d+:?/gi, '');
+  text = text.replace(/\(\s*turn\s*#?\d+\s*\)/gi, '');
+
+  // 2. Remove meta-tags and system prompt echoes
+  text = text.replace(/<[^>]+>/g, ' '); // remove any HTML / XML tags
+  text = text.replace(/\[(?:system|instruction|meta|prompt|role|thought|note)[^\]]*\]/gi, '');
+  text = text.replace(/\((?:system|instruction|meta|prompt|role|thought|note)[^)]*\)/gi, '');
+  text = text.replace(/^(?:system|instruction|assistant|bot|ai|agent|model):\s*/i, '');
+  text = text.replace(/\bvoice & interaction rules:[^.\n]*[.\n]?/gi, '');
+
+  // 3. Remove stage directions or descriptive actions in brackets, parentheses, or asterisks
+  // e.g. *chuckles*, [pause], (sighs), *smiling*, [speaks softly], (laughs)
+  text = text.replace(/\*[^*]+\*/g, ' ');
+  text = text.replace(/\[(?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^\]]*\]/gi, '');
+  text = text.replace(/\((?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^)]*\)/gi, '');
+
+  // 4. Remove Markdown syntax that could be pronounced awkwardly
+  text = text.replace(/^#+\s+/gm, ''); // headers
+  text = text.replace(/[*_~`#]/g, ''); // formatting symbols
+  text = text.replace(/^[-*+]\s+/gm, ''); // bullets
+  text = text.replace(/^\d+\.\s+/gm, ''); // numbered lists
+
+  // 5. Clean up redundant whitespace and punctuation
+  text = text.replace(/\s+/g, ' ').trim();
+  text = text.replace(/^[,;:\s]+/, '');
+
+  return text;
+}
+
+/**
+ * Plays voice audio via server-side ElevenLabs preview endpoint if configured,
+ * or cleanly falls back to client speech synthesis.
  */
 export const playVoiceAudio = async ({
   text,
@@ -159,6 +205,7 @@ export const playVoiceAudio = async ({
   volume = 1,
   voiceModel,
   authToken,
+  stability,
   onStateChange,
   onAutoplayBlocked,
 }: {
@@ -170,15 +217,27 @@ export const playVoiceAudio = async ({
   volume?: number;
   voiceModel?: string;
   authToken?: string;
+  stability?: number;
   onStateChange?: (isPlaying: boolean) => void;
   onAutoplayBlocked?: () => void;
 }) => {
   stopVoiceAudio();
   isPlayingCallback = onStateChange || null;
 
+  // Sanitize dialogue so no meta-tags, turn indicators (e.g. (1 turns)), or stage directions are ever spoken
+  const cleanDialogue = sanitizeSpokenText(text);
+  if (!cleanDialogue.trim()) {
+    if (onStateChange) onStateChange(false);
+    return;
+  }
+
   await ensureAudioUnlocked();
 
   if (onStateChange) onStateChange(true);
+
+  // Enforce ElevenLabs voice ID (defaulting to Freya if unspecified or generic)
+  const resolvedVoiceId =
+    voiceId && voiceId !== 'browser_system_voice' ? voiceId : 'jsCqWAovK2LkecY7zXl4';
 
   const effectiveRate = Math.max(0.5, Math.min(2.0, rate || 1.0));
   const effectiveVolume = Math.max(0.0, Math.min(1.0, typeof volume === 'number' ? volume : 1.0));
@@ -200,27 +259,27 @@ export const playVoiceAudio = async ({
   }
   detuneCents = Math.max(-1200, Math.min(1200, detuneCents));
 
-  // 1. Attempt Server-Side Voice Generation if voiceId is a known ElevenLabs voice
-  if (voiceId && voiceId !== 'browser_system_voice') {
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
-      }
+  // 1. Attempt Server-Side ElevenLabs Voice Generation
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
 
-      const response = await fetch(`/api/voices/${voiceId}/preview`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          text,
-          pitch,
-          rate: effectiveRate,
-          volume: effectiveVolume,
-          voiceModel,
-        }),
-      });
+    const response = await fetch(`/api/voices/${resolvedVoiceId}/preview`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        text: cleanDialogue,
+        pitch,
+        rate: effectiveRate,
+        volume: effectiveVolume,
+        voiceModel: voiceModel || 'eleven_turbo_v2_5',
+        stability: typeof stability === 'number' ? stability : undefined,
+      }),
+    });
 
       if (response.ok) {
         const audioBlob = await response.blob();
@@ -333,7 +392,6 @@ export const playVoiceAudio = async ({
     } catch (serverErr) {
       console.warn('Server voice audio request failed, falling back to Web Speech:', serverErr);
     }
-  }
 
   // 2. Client Web Speech API fallback
   if ('speechSynthesis' in window) {
@@ -375,7 +433,7 @@ export const playVoiceAudio = async ({
         }
       }
 
-      const utterance = new SpeechSynthesisUtterance(text);
+      const utterance = new SpeechSynthesisUtterance(cleanDialogue);
       utterance.pitch = Math.min(2.0, Math.max(0.5, tunedPitch));
       utterance.rate = Math.min(2.0, Math.max(0.5, tunedRate));
       utterance.volume = effectiveVolume;

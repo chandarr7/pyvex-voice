@@ -414,6 +414,8 @@ export const FluidOrbMeshVisualizer: React.FC<FluidOrbMeshVisualizerProps> = ({
 
   // Handle Canvas resize
   useEffect(() => {
+    let rafId: number | null = null;
+
     const handleResize = () => {
       const canvas = canvasRef.current;
       const container = containerRef.current;
@@ -421,16 +423,37 @@ export const FluidOrbMeshVisualizer: React.FC<FluidOrbMeshVisualizerProps> = ({
 
       const rect = container.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.floor(rect.width * dpr);
-      canvas.height = Math.floor(rect.height * dpr);
+      const targetWidth = Math.max(1, Math.floor(rect.width * dpr));
+      const targetHeight = Math.max(1, Math.floor(rect.height * dpr));
+
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+      }
+    };
+
+    const scheduledResize = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      rafId = requestAnimationFrame(handleResize);
     };
 
     handleResize();
-    const observer = new ResizeObserver(handleResize);
+    const observer = new ResizeObserver(() => {
+      scheduledResize();
+    });
+
     if (containerRef.current) {
       observer.observe(containerRef.current);
     }
-    return () => observer.disconnect();
+
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      observer.disconnect();
+    };
   }, [isOverlay]);
 
   // Pointer & Touch interactions for 3D rotation

@@ -6,7 +6,7 @@ import { VoiceControls } from './VoiceControls';
 import { EventsLogPanel } from './EventsLogPanel';
 import { SettingsModal } from './SettingsModal';
 import { PipelineTriageModal } from './PipelineTriageModal';
-import { VoiceSettingsPanel, ACCENT_OPTIONS, getPersonaForFlow } from './VoiceSettingsPanel';
+import { VoiceSettingsPanel, VoiceSettings, ACCENT_OPTIONS, getPersonaForFlow } from './VoiceSettingsPanel';
 import { ConversationTestSimulator } from './ConversationTestSimulator';
 import { FluidOrbMeshVisualizer } from './FluidOrbMeshVisualizer';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +15,7 @@ import {
   stopVoiceAudio,
   playVoiceAudio,
   playAcousticToneFallback,
+  sanitizeSpokenText,
 } from '../utils/audioEngine';
 import { ChatMessage, FrameEvent, PipelineConfig, PipelineMetrics, PresetFlow, ServicesCatalog, PersonaVoiceTuning, FluidMeshStyle } from '../types';
 
@@ -71,16 +72,17 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
   const [isOrbOverlayOpen, setIsOrbOverlayOpen] = useState(false);
   const [visualizerTab, setVisualizerTab] = useState<'pipeline' | 'orb'>('pipeline');
   const [fluidMeshStyle, setFluidMeshStyle] = useState<FluidMeshStyle>('flow');
-  const [selectedVoiceId, setSelectedVoiceId] = useState<string>('EXAVITQu4vr4xnSDxMaL');
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>('jsCqWAovK2LkecY7zXl4');
 
   const [voiceTuning, setVoiceTuning] = useState<PersonaVoiceTuning>(() => {
     const persona = getPersonaForFlow(initialFlowId || 'customer_support');
     const defaultVoice = persona.voices.female;
     return {
-      pitch: defaultVoice?.pitch || 1.0,
+      pitch: defaultVoice?.pitch || 1.12,
       speed: defaultVoice?.rate || 1.0,
-      accent: 'us_executive',
-      voiceId: defaultVoice?.elevenLabsId || 'EXAVITQu4vr4xnSDxMaL',
+      stability: 0.75,
+      accent: 'sweet_freya',
+      voiceId: defaultVoice?.elevenLabsId || 'jsCqWAovK2LkecY7zXl4',
       gender: 'female',
     };
   });
@@ -260,6 +262,7 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
           gender: voiceTuning.gender,
           pitch: voiceTuning.pitch,
           rate: voiceTuning.speed,
+          stability: voiceTuning.stability ?? 0.75,
           authToken: token || undefined,
           onStateChange: (playing) => {
             if (playing) {
@@ -345,10 +348,12 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
 
         addEvent('llm.request.completed', 'llm', `Generated response in ${data.latencyMs || 0}ms`, 'success');
 
+        const cleanContent = sanitizeSpokenText(replyText) || replyText;
+
         const assistantMsg: ChatMessage = {
           id: `msg_${Date.now()}_assistant`,
           role: 'assistant',
-          content: replyText,
+          content: cleanContent,
           timestamp: Date.now(),
           latencyMs: data.latencyMs,
         };
@@ -776,15 +781,15 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
               <span className="hidden sm:inline">Test Pyvex Voice</span>
             </button>
 
-            {/* Acoustic Voice Tuning (Pitch, Speed, Accent) */}
+            {/* Voice Settings (Speaking Rate, Pitch, Tone Stability) */}
             <button
-              id="header-open-voice-tuning-button"
+              id="header-open-voice-settings-button"
               onClick={() => setIsVoiceTuningOpen(true)}
               className="px-3 py-1.5 rounded-full text-xs font-mono uppercase tracking-wider border border-purple-500/40 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 flex items-center gap-1.5 transition-all shadow-sm"
-              title="Acoustic Voice Tuning: Pitch, Speed & Accent Calibration"
+              title="Voice Settings: Speaking rate, pitch & tone stability (Firestore Persisted)"
             >
               <Sliders className="w-3.5 h-3.5 text-purple-400" />
-              <span className="hidden md:inline">Voice Tuning</span>
+              <span className="hidden md:inline">Voice Settings</span>
             </button>
 
             {/* Save Agent Preset to Firestore Database */}
@@ -1042,8 +1047,8 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
         </div>
       </div>
 
-      {/* Voice Tuning Panel (Pitch, Speed, Accent) */}
-      <VoiceSettingsPanel
+      {/* Voice Settings Panel (Speaking Rate, Pitch, Tone Stability, Firestore Persisted) */}
+      <VoiceSettings
         isOpen={isVoiceTuningOpen}
         onClose={() => setIsVoiceTuningOpen(false)}
         activeFlowId={pipelineConfig.flow}
@@ -1054,7 +1059,7 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
           addEvent(
             'voice.calibrated',
             'tts',
-            `Calibrated acoustics: Pitch ${newTuning.pitch.toFixed(2)}x, Speed ${newTuning.speed.toFixed(2)}x (${newTuning.accent})`,
+            `Calibrated acoustics: Rate ${newTuning.speed.toFixed(2)}x, Pitch ${newTuning.pitch.toFixed(2)}x, Stability ${(((newTuning.stability ?? 0.75) * 100).toFixed(0))}% (${newTuning.accent})`,
             'info'
           );
         }}
@@ -1096,29 +1101,31 @@ export const LiveStudioModal: React.FC<LiveStudioModalProps> = ({
       />
 
       {/* Interactive Conversation Test Simulator */}
-      <ConversationTestSimulator
-        isOpen={isTestSimulatorOpen}
-        onClose={() => setIsTestSimulatorOpen(false)}
-        initialVoiceId={voiceTuning.voiceId}
-        initialGender={voiceTuning.gender}
-        initialFlow={pipelineConfig.flow}
-        onPersistDraft={(draft) => {
-          setVoiceTuning((prev) => ({
-            ...prev,
-            pitch: draft.pitch,
-            speed: draft.rate,
-            gender: draft.gender,
-            voiceId: draft.voiceId,
-          }));
-          setSelectedVoiceId(draft.voiceId);
-          addEvent(
-            'voice.calibrated',
-            'tts',
-            `Simulator saved draft: Pitch ${draft.pitch.toFixed(2)}x, Speed ${draft.rate.toFixed(2)}x`,
-            'info'
-          );
-        }}
-      />
+      {isTestSimulatorOpen && (
+        <ConversationTestSimulator
+          isOpen={isTestSimulatorOpen}
+          onClose={() => setIsTestSimulatorOpen(false)}
+          initialVoiceId={voiceTuning.voiceId}
+          initialGender={voiceTuning.gender}
+          initialFlow={pipelineConfig.flow}
+          onPersistDraft={(draft) => {
+            setVoiceTuning((prev) => ({
+              ...prev,
+              pitch: draft.pitch,
+              speed: draft.rate,
+              gender: draft.gender,
+              voiceId: draft.voiceId,
+            }));
+            setSelectedVoiceId(draft.voiceId);
+            addEvent(
+              'voice.calibrated',
+              'tts',
+              `Simulator saved draft: Pitch ${draft.pitch.toFixed(2)}x, Speed ${draft.rate.toFixed(2)}x`,
+              'info'
+            );
+          }}
+        />
+      )}
 
       {/* Full-Screen Holographic Fluid Mesh Orb Visualizer Overlay */}
       {isOrbOverlayOpen && (

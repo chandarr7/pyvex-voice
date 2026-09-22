@@ -155,14 +155,14 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
             <div className="hidden sm:flex items-center gap-1.5">
               <select
                 id="elevenlabs-voice-selector"
-                value={selectedVoiceId || 'EXAVITQu4vr4xnSDxMaL'}
+                value={selectedVoiceId || 'jsCqWAovK2LkecY7zXl4'}
                 onChange={(e) => onSelectVoiceId(e.target.value)}
                 className="bg-[#181a1f] border border-purple-500/30 hover:border-purple-400/50 rounded-full px-3 py-1.5 text-[11px] font-mono text-purple-200 focus:outline-none cursor-pointer"
                 title="Select Active ElevenLabs Voice"
               >
                 <optgroup label="Sweet Human Female Voices">
+                  <option value="jsCqWAovK2LkecY7zXl4">✨ Freya (Sweet Radiant) [Default]</option>
                   <option value="pFZP5JQG7iQjIQuC4Bku">🌸 Lily (Sweet Velvet)</option>
-                  <option value="jsCqWAovK2LkecY7zXl4">✨ Freya (Sweet Radiant)</option>
                   <option value="LcfcDJNigUd50AZSDxio">🌷 Emily (Sweet Gentle)</option>
                   <option value="XB0fDUnXU5powFXDhCwa">🕊️ Charlotte (Sweet Melodic)</option>
                   <option value="piTKgcLEGmPE4e6mEKli">🌙 Nicole (Sweet Whisper-Soft)</option>

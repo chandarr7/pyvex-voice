@@ -357,7 +357,7 @@ export const PipelineTriageModal: React.FC<PipelineTriageModalProps> = ({ isOpen
       const token = user ? await user.getIdToken() : null;
       await playVoiceAudio({
         text: 'Pyvex Voice pipeline is calibrated and responsive. Audio ingress, speech recognition, and speech synthesis are online.',
-        voiceId: 'EXAVITQu4vr4xnSDxMaL',
+        voiceId: 'jsCqWAovK2LkecY7zXl4',
         gender: 'female',
         authToken: token || undefined,
         onStateChange: (playing) => {

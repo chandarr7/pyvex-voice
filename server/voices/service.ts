@@ -1,6 +1,6 @@
 export interface SafeVoiceProfile {
   id: string;
-  provider: 'elevenlabs' | 'web_speech';
+  provider: 'elevenlabs';
   displayName: string;
   gender: 'female' | 'male';
   accent: string;
@@ -10,6 +10,15 @@ export interface SafeVoiceProfile {
 
 // Verified premade ElevenLabs voices available on all tiers
 export const SAFE_VOICE_CATALOG: SafeVoiceProfile[] = [
+  {
+    id: 'jsCqWAovK2LkecY7zXl4',
+    provider: 'elevenlabs',
+    displayName: 'Freya (Sweet Radiant)',
+    gender: 'female',
+    accent: 'Nordic / American (Sweet, Bright, Radiant, Charming)',
+    description: 'Delightful, radiant, and charmingly sweet cadence with a warm acoustic smile.',
+    sampleAudioAvailable: true,
+  },
   {
     id: 'EXAVITQu4vr4xnSDxMaL',
     provider: 'elevenlabs',
@@ -53,15 +62,6 @@ export const SAFE_VOICE_CATALOG: SafeVoiceProfile[] = [
     gender: 'female',
     accent: 'British / American (Sweet, Warm, Velvet, Soothing)',
     description: 'Warm, velvet, soothing, and sweet gentle cadence with comforting acoustic warmth.',
-    sampleAudioAvailable: true,
-  },
-  {
-    id: 'jsCqWAovK2LkecY7zXl4',
-    provider: 'elevenlabs',
-    displayName: 'Freya (Sweet Radiant)',
-    gender: 'female',
-    accent: 'Nordic / American (Sweet, Bright, Radiant, Charming)',
-    description: 'Delightful, radiant, and charmingly sweet cadence with a warm acoustic smile.',
     sampleAudioAvailable: true,
   },
   {
@@ -136,25 +136,16 @@ export const SAFE_VOICE_CATALOG: SafeVoiceProfile[] = [
     description: 'Calm and steady for fleet dispatch and telemetry updates.',
     sampleAudioAvailable: true,
   },
-  {
-    id: 'browser_system_voice',
-    provider: 'web_speech',
-    displayName: 'Browser System Speech (Client Fallback)',
-    gender: 'female',
-    accent: 'Native Device Engine',
-    description: 'Local browser speech synthesis engine; operates offline without cloud API.',
-    sampleAudioAvailable: false,
-  },
 ];
 
 // Alias mapping from legacy/library voice IDs to verified premade ElevenLabs IDs
 const VOICE_ALIASES: Record<string, string> = {
-  '21m00Tcm4TlvDq8ikWAM': 'EXAVITQu4vr4xnSDxMaL', // Rachel -> Sarah
+  '21m00Tcm4TlvDq8ikWAM': 'jsCqWAovK2LkecY7zXl4', // Rachel -> Freya
   'ErXwobaYiN019PkySvjV': 'IKne3meq5aSn9XLyUdCD', // Antoni -> Charlie
   'pNInz6obpgDQGcFmaJgB': 'JBFqnCBsd6RMkjVDRZzb', // Adam -> George
 };
 
-export const DEFAULT_ELEVENLABS_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Sarah
+export const DEFAULT_ELEVENLABS_VOICE_ID = 'jsCqWAovK2LkecY7zXl4'; // Freya (Sweet Radiant)
 
 export interface VoiceSynthesisOptions {
   pitch?: number; // -10.0 to +10.0 scale or 0.5 - 2.0 ratio
@@ -183,11 +174,26 @@ export async function generateServerVoicePreview(
   // Resolve alias if legacy voice ID passed
   let resolvedVoiceId = VOICE_ALIASES[voiceId] || voiceId;
 
-  // Clean and prepare spoken text
-  const cleanText = (sampleText || '')
-    .replace(/[*_#`~>]/g, '') // remove markdown symbols that sound weird in TTS
-    .trim()
-    .slice(0, 1500);
+  // Clean and prepare spoken dialogue for fluid, real-time ElevenLabs voice stream
+  let cleanText = (sampleText || '');
+  // Strip turn counts e.g. "(1 turns)", "(2 turns)", "1 turns", "turn 1:", "[1 turns]"
+  cleanText = cleanText.replace(/\(?\s*\d+\s+turns?\s*\)?/gi, '');
+  cleanText = cleanText.replace(/\[\s*\d+\s+turns?\s*\]/gi, '');
+  cleanText = cleanText.replace(/\bturns?\s*#?\d+:?/gi, '');
+  cleanText = cleanText.replace(/\(\s*turn\s*#?\d+\s*\)/gi, '');
+  // Strip meta-tags and system prompt echoes
+  cleanText = cleanText.replace(/<[^>]+>/g, ' ');
+  cleanText = cleanText.replace(/\[(?:system|instruction|meta|prompt|role|thought|note)[^\]]*\]/gi, '');
+  cleanText = cleanText.replace(/\((?:system|instruction|meta|prompt|role|thought|note)[^)]*\)/gi, '');
+  cleanText = cleanText.replace(/^(?:system|instruction|assistant|bot|ai|agent|model):\s*/i, '');
+  cleanText = cleanText.replace(/\bvoice & interaction rules:[^.\n]*[.\n]?/gi, '');
+  // Strip stage directions or bracketed actions
+  cleanText = cleanText.replace(/\*[^*]+\*/g, ' ');
+  cleanText = cleanText.replace(/\[(?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^\]]*\]/gi, '');
+  cleanText = cleanText.replace(/\((?:pause|sigh|laughs|chuckles|smiles|whispers|coughs|giggles|speaking|action|stage|audio)[^)]*\)/gi, '');
+  // Clean markdown tokens
+  cleanText = cleanText.replace(/[*_#`~>]/g, '');
+  cleanText = cleanText.replace(/\s+/g, ' ').trim().slice(0, 1500);
 
   if (!cleanText) {
     throw new VoiceServiceError('INVALID_REQUEST', 'Spoken text cannot be empty.', 400);
@@ -223,10 +229,16 @@ export async function generateServerVoicePreview(
 
   let response = await callElevenLabs(resolvedVoiceId);
 
-  // If ElevenLabs reports paid plan required for the voice, fall back to default premade voice
+  // If ElevenLabs reports paid plan required for the voice, fall back gracefully
   if (response.status === 402) {
-    console.warn(`[ElevenLabs] Voice ${resolvedVoiceId} requires paid plan. Falling back to premade voice ${DEFAULT_ELEVENLABS_VOICE_ID}`);
-    response = await callElevenLabs(DEFAULT_ELEVENLABS_VOICE_ID);
+    console.warn(`[ElevenLabs] Voice ${resolvedVoiceId} requires paid plan. Attempting free premade fallback.`);
+    const fallbackIds = ['EXAVITQu4vr4xnSDxMaL', 'Xb7hH8MSUJpSbSDYk0k2'];
+    for (const fallbackId of fallbackIds) {
+      if (fallbackId !== resolvedVoiceId) {
+        response = await callElevenLabs(fallbackId);
+        if (response.ok) break;
+      }
+    }
   }
 
   if (!response.ok) {

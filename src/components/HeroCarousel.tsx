@@ -368,18 +368,10 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                     </span>
                     {/* Pill-shaped tag indicating Voice Model provider on background card */}
                     <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-medium border ${
-                        nextPersona.voiceProvider === 'ElevenLabs'
-                          ? 'border-[#845CFF]/40 bg-[#845CFF]/15 text-[#D8B4FE]'
-                          : 'border-[#24D8ED]/40 bg-[#24D8ED]/15 text-[#67E8F9]'
-                      }`}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-medium border border-[#845CFF]/40 bg-[#845CFF]/15 text-[#D8B4FE]"
                     >
-                      <span
-                        className={`w-1 h-1 rounded-full ${
-                          nextPersona.voiceProvider === 'ElevenLabs' ? 'bg-[#845CFF]' : 'bg-[#24D8ED]'
-                        }`}
-                      />
-                      <span>{nextPersona.voiceProvider}</span>
+                      <span className="w-1 h-1 rounded-full bg-[#845CFF]" />
+                      <span>ElevenLabs</span>
                     </span>
                   </div>
                   <span className="text-[10px] font-mono text-[#666879]">NEXT AGENT</span>
@@ -437,23 +429,13 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                       {activePersona.category}
                     </span>
 
-                    {/* Pill-shaped tag indicating the 'Voice Model' provider (e.g., ElevenLabs, Cartesia) */}
+                    {/* Pill-shaped tag indicating the 'Voice Model' provider: ElevenLabs */}
                     <div
                       id={`voice-model-pill-${activePersona.id}`}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-semibold tracking-wide border shadow-sm ${
-                        activePersona.voiceProvider === 'ElevenLabs'
-                          ? 'border-[#845CFF]/50 bg-[#845CFF]/15 text-[#D8B4FE]'
-                          : 'border-[#24D8ED]/50 bg-[#24D8ED]/15 text-[#67E8F9]'
-                      }`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-semibold tracking-wide border shadow-sm border-[#845CFF]/50 bg-[#845CFF]/15 text-[#D8B4FE]"
                       title={`Voice Model Provider: ${activePersona.voiceProvider} (${activePersona.voiceModel})`}
                     >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          activePersona.voiceProvider === 'ElevenLabs'
-                            ? 'bg-[#845CFF] shadow-[0_0_8px_#845CFF]'
-                            : 'bg-[#24D8ED] shadow-[0_0_8px_#24D8ED]'
-                        }`}
-                      />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#845CFF] shadow-[0_0_8px_#845CFF]" />
                       <span className="text-[#A4A3B2] font-normal">Voice Model:</span>
                       <span className="font-bold text-[#F4F2F8]">{activePersona.voiceProvider}</span>
                       <span className="text-[9px] opacity-75">({activePersona.voiceModel})</span>
@@ -647,26 +629,28 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
       </div>
 
       {/* Interactive Conversation Test Simulator Modal */}
-      <ConversationTestSimulator
-        isOpen={isSimulatorOpen}
-        onClose={() => setIsSimulatorOpen(false)}
-        initialVoiceId={voiceTuning.voiceId || activeVoice.elevenLabsId}
-        initialGender={selectedGender}
-        initialFlow={activePersona.id}
-        onPersistDraft={(draft) => {
-          setActiveDraft(draft);
-          if (draft.voiceId) {
-            setVoiceTuning((prev) => ({
-              ...prev,
-              voiceId: draft.voiceId,
-              gender: draft.gender,
-              pitch: draft.pitch,
-              speed: draft.rate,
-            }));
-            setSelectedGender(draft.gender);
-          }
-        }}
-      />
+      {isSimulatorOpen && (
+        <ConversationTestSimulator
+          isOpen={isSimulatorOpen}
+          onClose={() => setIsSimulatorOpen(false)}
+          initialVoiceId={voiceTuning.voiceId || activeVoice.elevenLabsId}
+          initialGender={selectedGender}
+          initialFlow={activePersona.id}
+          onPersistDraft={(draft) => {
+            setActiveDraft(draft);
+            if (draft.voiceId) {
+              setVoiceTuning((prev) => ({
+                ...prev,
+                voiceId: draft.voiceId,
+                gender: draft.gender,
+                pitch: draft.pitch,
+                speed: draft.rate,
+              }));
+              setSelectedGender(draft.gender);
+            }
+          }}
+        />
+      )}
 
       {/* Voice Tuning Calibration Modal */}
       <VoiceSettingsPanel

@@ -63,6 +63,18 @@ service cloud.firestore {
              (!('messages' in data) || (data.messages is list && data.messages.size() <= 200));
     }
 
+    function isValidVoiceSettings(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.speakingRate is number && data.speakingRate >= 0.25 && data.speakingRate <= 3.0 &&
+             data.pitch is number && data.pitch >= -10.0 && data.pitch <= 10.0 &&
+             data.stability is number && data.stability >= 0.0 && data.stability <= 1.0 &&
+             (!('personaId' in data) || (data.personaId is string && data.personaId.size() <= 100)) &&
+             (!('voiceId' in data) || (data.voiceId is string && data.voiceId.size() <= 128)) &&
+             (!('gender' in data) || (data.gender in ['female', 'male'])) &&
+             (!('accent' in data) || (data.accent is string && data.accent.size() <= 100));
+    }
+
     // User collection
     match /users/{userId} {
       allow get: if isOwner(userId);
@@ -122,6 +134,27 @@ service cloud.firestore {
 
       allow delete: if isSignedIn() &&
                        isValidId(sessionId) &&
+                       existing().userId == request.auth.uid;
+    }
+
+    // Voice Settings collection (speaking rate, pitch, tone stability)
+    match /voice_settings/{settingId} {
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(settingId) &&
+                       isValidVoiceSettings(incoming()) &&
+                       incoming().userId == request.auth.uid;
+
+      allow update: if isSignedIn() &&
+                       isValidId(settingId) &&
+                       isValidVoiceSettings(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId;
+
+      allow delete: if isSignedIn() &&
+                       isValidId(settingId) &&
                        existing().userId == request.auth.uid;
     }
   }

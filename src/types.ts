@@ -62,34 +62,6 @@ export interface PipelineMetrics {
   totalLatencyMs: number;
 }
 
-export type GeminiModelId =
-  | 'gemini-3.5-flash'
-  | 'gemini-3.1-flash-lite'
-  | 'gemini-3.1-pro-preview'
-  | 'gemini-3.8-flash';
-
-export interface GeminiChatMessage {
-  id: string;
-  role: 'user' | 'model';
-  content: string;
-  timestamp: number;
-  latencyMs?: number;
-  model?: string;
-  error?: boolean;
-}
-
-export interface GeminiChatRole {
-  id: string;
-  title: string;
-  category: string;
-  iconName: string;
-  tagline: string;
-  systemInstruction: string;
-  suggestedPrompts: string[];
-  recommendedModel: GeminiModelId;
-  colorAccent: string;
-}
-
 export interface UserProfile {
   uid: string;
   email: string;
@@ -107,6 +79,21 @@ export interface PersonaVoiceTuning {
   accent: string;
   voiceId: string;
   gender: 'female' | 'male';
+  stability?: number; // Tone stability: 0.0 to 1.0 (default: 0.75)
+}
+
+export interface VoiceSettingsDoc {
+  id?: string;
+  userId: string;
+  personaId: string;
+  voiceId: string;
+  speakingRate: number; // 0.25 to 3.0 (default: 1.0)
+  pitch: number;        // -10.0 to 10.0 (default: 1.0)
+  stability: number;    // 0.0 to 1.0 (default: 0.75)
+  gender?: 'female' | 'male';
+  accent?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface SavedVoiceAgent {

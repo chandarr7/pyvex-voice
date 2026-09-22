@@ -15,7 +15,7 @@ export interface Persona {
   headline: string;
   subheadline: string;
   statBadge: string;
-  voiceProvider: 'ElevenLabs' | 'Cartesia' | string;
+  voiceProvider: 'ElevenLabs';
   voiceModel: string;
   metrics: {
     latency: string;
@@ -59,11 +59,11 @@ export const PYVEX_PERSONAS: Persona[] = [
       },
       female: {
         gender: 'female',
-        name: 'Sarah (Inbound SDR)',
-        elevenLabsId: 'EXAVITQu4vr4xnSDxMaL',
-        tone: 'Articulate, consultative, polished executive cadence',
-        sampleScript: 'Hello, this is Sarah from Pyvex Enterprise Solutions. I can walk you through our sub-300ms acoustic pipeline, SIP trunking integrations, and custom voice persona deployments.',
-        pitch: 1.02,
+        name: 'Freya (Inbound SDR)',
+        elevenLabsId: 'jsCqWAovK2LkecY7zXl4',
+        tone: 'Radiant, charmingly sweet, consultative cadence with an articulate, warm acoustic smile',
+        sampleScript: "Hi there! I'm Freya from Pyvex Enterprise Solutions. I'm so excited to connect with you! I can walk you through our sub-300ms acoustic pipeline, SIP trunking integrations, and custom voice deployments.",
+        pitch: 1.12,
         rate: 1.0,
       },
     },
@@ -270,18 +270,6 @@ export interface SweetVoiceProfile {
 
 export const SWEET_FEMALE_VOICES: SweetVoiceProfile[] = [
   {
-    id: 'pFZP5JQG7iQjIQuC4Bku',
-    name: 'Lily',
-    badge: 'Sweet Velvet',
-    tagline: 'Warm, velvet, soothing acoustic warmth',
-    description: 'A comforting, velvety sweet tone that puts listeners at ease immediately. Exceptional for healthcare, caregiving, and gentle guidance.',
-    tone: 'Soothing, gentle, sweet velvet acoustic warmth',
-    pitch: 1.08,
-    rate: 0.96,
-    sampleScript: "Hello! I'm Lily. It is such a pleasure to speak with you today. Take your time, and let me know how I can help make things easier for you.",
-    flag: '🌸',
-  },
-  {
     id: 'jsCqWAovK2LkecY7zXl4',
     name: 'Freya',
     badge: 'Sweet Radiant',
@@ -292,6 +280,18 @@ export const SWEET_FEMALE_VOICES: SweetVoiceProfile[] = [
     rate: 1.0,
     sampleScript: "Hi there! I'm Freya. I'm so excited to connect with you! Everything is running smoothly, and I'd love to assist you with whatever you need.",
     flag: '✨',
+  },
+  {
+    id: 'pFZP5JQG7iQjIQuC4Bku',
+    name: 'Lily',
+    badge: 'Sweet Velvet',
+    tagline: 'Warm, velvet, soothing acoustic warmth',
+    description: 'A comforting, velvety sweet tone that puts listeners at ease immediately. Exceptional for healthcare, caregiving, and gentle guidance.',
+    tone: 'Soothing, gentle, sweet velvet acoustic warmth',
+    pitch: 1.08,
+    rate: 0.96,
+    sampleScript: "Hello! I'm Lily. It is such a pleasure to speak with you today. Take your time, and let me know how I can help make things easier for you.",
+    flag: '🌸',
   },
   {
     id: 'LcfcDJNigUd50AZSDxio',
